@@ -40,22 +40,20 @@ def main():
     regSphereObj = get_sphere('symmetric362')
     peaksSphereObj = get_sphere('repulsion724')
 
-    # sphereData = get_sphere('repulsion724')
-
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ RESPONSES ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    outName = cmdLine.output_ + 'recurResponse' + str(cmdLine.shOrder_) + '.npz'
+    outNameBase = ''.join([cmdLine.output_, '_recurRes_sh', str(cmdLine.shOrder_)])
 
     if cmdLine.recurResp_ == 1:
 
-        if os.path.isfile(outName):
+        if os.path.isfile(outNameBase + '.npz'):
 
             flprint("already found the recursive stuffs, will load it up")
 
             # load up the np file
-            responseTemp = np.load(outName)
+            responseTemp = np.load(outNameBase + '.npz')
             response = responseTemp['arr_0']
             response = response.item()
 
@@ -64,8 +62,17 @@ def main():
             # check if wm mask provided, if not, make one
             if cmdLine.wmMask_:
 
+                flprint("using wm mask provided")
+
                 wmMaskImg = nib.load(cmdLine.wmMask_)
                 wmMaskData = wmMaskImg.get_data()
+
+                flprint(wmMaskImg.shape)
+
+                # check that is wm mask is same dim as dwi
+                if not np.array_equal(dwiImg.shape[0:3], wmMaskImg.shape[0:3]):
+                    flprint("wm mask wrong shape")
+                    exit(1)
 
             else:
 
@@ -89,13 +96,14 @@ def main():
             flprint("doing recusive stuffs...")
             response = recursive_response(gtab,
                                           dwiData,
-                                          mask=wmMaskData, sh_order=cmdLine.shOrder_,
-                                          sphere=peaksSphereObj, parallel=True,
-                                          nbr_processes=4)
+                                          mask=wmMaskData.astype(np.bool), sh_order=cmdLine.shOrder_,
+                                          sphere=peaksSphereObj, parallel=False,
+                                          nbr_processes=1)
             flprint("finish doing recusive stuffs")
+            flprint(str(response))
 
             # lets save the response as an np object to the disk
-            np.savez_compressed(outName, response, 'arr_0')
+            np.savez_compressed(outNameBase + '.npz', response, 'arr_0')
 
     else:
 
@@ -107,14 +115,14 @@ def main():
                                         roi_radius=10, fa_thr=cmdLine.faThr_)
 
         # lets save the response as an np object to the disk
-        np.savez_compressed(outName, response, 'arr_0')
+        np.savez_compressed(outNameBase + '.npz', response, 'arr_0')
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ CSD FIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     csd_model = ConstrainedSphericalDeconvModel(gtab, response,
-                                                sh_order=cmdLine,
+                                                sh_order=cmdLine.shOrder_,
                                                 reg_sphere=regSphereObj)
 
     flprint("making peaks from model")
@@ -124,11 +132,12 @@ def main():
                                  sphere=peaksSphereObj,
                                  relative_peak_threshold=0.5,
                                  min_separation_angle=25,
-                                 mask=maskData,
+                                 mask=maskData.astype(np.bool),
                                  return_sh=True,
                                  normalize_peaks=True,
-                                 parallel=True,
-                                 nbr_processes=4)
+                                 parallel=False,
+                                 nbr_processes=1)
+
     flprint("done making peaks from model")
 
     # gather output
@@ -142,9 +151,10 @@ def main():
     fod_peak_ind = csd_peaks.peak_indices
 
     flprint('writing to the file the coefficients for sh order of: {0}'.format(str(cmdLine.shOrder_)))
-    # lets write this to the disk yo
 
-    fullOutput = outName + '_csdCompute_sh' + str(cmdLine.shOrder_) + '.h5'
+    # lets write this to the disk yo
+    fullOutput = ''.join([outNameBase, str(cmdLine.shOrder_), '_csdPAM.h5'])
+
     with h5py.File(fullOutput, 'w') as hf:
         group1 = hf.create_group('PAM')
         group1.create_dataset('coeff', data=fod_coeff, compression="gzip")
@@ -160,7 +170,7 @@ def main():
     gfaImg = nib.Nifti1Image(csd_peaks.gfa.astype(np.float32), dwiImg.get_affine())
 
     # make the output name yo
-    gfaOutputName = ''.join([outName, '_gfa_shOrder_', str(cmdLine.shOrder_), '.nii.gz'])
+    gfaOutputName = ''.join([outNameBase, '_gfa.nii.gz'])
 
     # same this FA
     nib.save(gfaImg, gfaOutputName)
@@ -168,18 +178,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

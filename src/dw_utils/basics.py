@@ -49,7 +49,7 @@ def loaddwibasics(dwipath, maskpath, bvalpath, bvecpath):
     gtab = gradient_table(bvalData, bvecData, b0_threshold=25)
 
     # show user
-    flprint('Nifti shape:{}\n'.format(dwiImage.get_shape))
+    flprint('Nifti shape:{}\n'.format(dwiImage.shape))
     flprint('\nBVALS look like this:{}\n'.format(bvalData))
     flprint('\nBVECS look like this:{}\n'.format(bvecData))
 

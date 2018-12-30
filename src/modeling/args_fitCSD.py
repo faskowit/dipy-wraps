@@ -77,3 +77,4 @@ class CmdLineHandler:
 
         if self.wmMask_:
             checkisfile(self.wmMask_)
+
