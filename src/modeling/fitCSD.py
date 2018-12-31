@@ -153,7 +153,7 @@ def main():
     flprint('writing to the file the coefficients for sh order of: {0}'.format(str(cmdLine.shOrder_)))
 
     # lets write this to the disk yo
-    fullOutput = ''.join([outNameBase, str(cmdLine.shOrder_), '_csdPAM.h5'])
+    fullOutput = ''.join([outNameBase, '_csdPAM.h5'])
 
     with h5py.File(fullOutput, 'w') as hf:
         group1 = hf.create_group('PAM')
