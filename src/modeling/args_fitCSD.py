@@ -1,19 +1,16 @@
 __author__ = 'jfaskowitz'
 
-import argparse
-from src.dw_utils.cmdline import dwibasics
+from src.dw_utils.cmdline import CmdLineHandler
 from src.dw_utils.basics import isfloat, checkisfile
 
-class CmdLineHandler:
+class CmdLineFitCSD(CmdLineHandler):
 
-    def __init__(self):
+    def __init__(self, parserdesc):
 
-        # initialize all the variables to empty strings
-        self.dwi_ = ''
-        self.mask_ = ''
-        self.bvec_ = ''
-        self.bval_ = ''
-        self.output_ = 'out'
+        # initalize the dwi essentials
+        CmdLineHandler.__init__(parserdesc)
+
+        # add application specific variables
         self.faThr_ = 0.7
         self.shOrder_ = 6
         self.recurResp_ = False
@@ -21,29 +18,24 @@ class CmdLineHandler:
 
     def get_args(self):
 
-        parser = argparse.ArgumentParser(description="Going to fit CSD yo")
+        # get the basics: dwi, bvals, bvecs, mask, output with object function
+        self.parser = self.dwibasics()
 
-        # get the basics: dwi, bvals, bvecs, mask
-        parser = dwibasics(parser)
+        # add application specific stuff
+        self.parser.add_argument('-fa_thr', nargs='?',
+                                 help="fa threshold to use")
 
-        # the output should be provided, but I guess it could be optional
-        parser.add_argument('-output', nargs='?',
-                            help="Add the name of the output prefix you want")
+        self.parser.add_argument('-sh_ord', nargs='?', type=int, choices=range(2, 14, 2),
+                                 help="sh order of the model yo", )
 
-        parser.add_argument('-fa_thr', nargs='?',
-                            help="fa threshold to use")
+        self.parser.add_argument('-recur_resp', action='store_true',
+                                 help="if you want recursive reponse")
 
-        parser.add_argument('-sh_ord', nargs='?', type=int, choices=range(2, 14, 2),
-                            help="sh order of the model yo", )
-
-        parser.add_argument('-recur_resp', action='store_true',
-                            help="if you want recursive reponse")
-
-        parser.add_argument('-wm_mask', nargs='?',
-                            help="white matter mask to use in response estimation")
+        self.parser.add_argument('-wm_mask', nargs='?',
+                                 help="white matter mask to use in response estimation")
 
         # this is a builtin function to parse the arguments of the arg parse module
-        args = parser.parse_args()
+        args = self.parser.parse_args()
 
         # get the arguments and store them as variables yo
         self.dwi_ = args.dwi
@@ -65,10 +57,7 @@ class CmdLineHandler:
 
     def check_args(self):
 
-        checkisfile(self.dwi_)
-        checkisfile(self.mask_)
-        checkisfile(self.bval_)
-        checkisfile(self.bvec_)
+        self.checkdwibasics()
 
         # optional arguments, check, if not handles by arg checker
         if not isfloat(self.faThr_) or (self.faThr_ < 0.5 or self.faThr_ > 1.0):

@@ -1,7 +1,7 @@
 __author__ = 'jfaskowitz'
 
-import sys
 import os
+import sys
 import nibabel as nib
 import numpy as np
 from dipy.io import read_bvals_bvecs

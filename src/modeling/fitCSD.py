@@ -4,7 +4,7 @@ import os
 import numpy as np
 import nibabel as nib
 import h5py
-from src.modeling.args_fitCSD import CmdLineHandler
+from src.modeling.args_fitCSD import CmdLineFitCSD
 from src.dw_utils.basics import flprint, loaddwibasics
 
 from dipy.segment.mask import applymask
@@ -18,7 +18,7 @@ np.seterr(all='ignore')
 def main():
     # variables that we will need
 
-    cmdLine = CmdLineHandler()
+    cmdLine = CmdLineFitCSD("fit the CSD yo")
     cmdLine.get_args()
     cmdLine.check_args()
 
