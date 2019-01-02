@@ -11,19 +11,20 @@ inspiration taken from the dipy website
 """
 
 import sys
+import ntpath
 import numpy as np
 import nibabel as nib
-from src.tracking.args_runTracking import CmdLineHandler
+from src.tracking.args_runTracking import CmdLineRunTracking
 from src.dw_utils.basics import flprint, loaddwibasics
 
 from dipy.segment.mask import applymask
 from dipy.data import get_sphere
-from dipy.reconst.dti import fractional_anisotropy, TensorModel , quantize_evecs
-
+from dipy.reconst.dti import fractional_anisotropy, TensorModel, quantize_evecs
+from dipy.tracking.utils import random_seeds_from_mask , seeds_from_mask
 
 def main():
     
-    cmdLine = CmdLineHandler()
+    cmdLine = CmdLineRunTracking("dipy streamline tracking yo")
     cmdLine.get_args()
     cmdLine.check_args()
     
@@ -60,8 +61,6 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~ RANDOM SEED and DENSITY ~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    # TODO give user option to save seed points as npz for future usage
-
     seed_points = None
 
     if not cmdLine.seedPointsFile_:
@@ -70,24 +69,23 @@ def main():
 
             # this is the common usage
             if cmdLine.randSeed_:
-                # make the seeds randomly yo
-                print("using a wm mask for random seeds with density of {}\n".format(str(cmdLine.seedDensity_)))
 
-                from dipy.tracking.utils import random_seeds_from_mask
+                # make the seeds randomly yo
+                flprint("using a wm mask for random seeds with density of {}\n".format(str(cmdLine.seedDensity_)))
+
                 seed_points = random_seeds_from_mask(wmMaskData,
+                                                     seed_count_per_voxel=cmdLine.seedDensity_,
                                                      affine=maskImg.get_affine())
             else:
-                # make the seeds yo
-                print(
-                    "using a wm mask for NON-random seeds with a density of {}\n".format(str(cmdLine.seedDensity_)))
 
-                from dipy.tracking.utils import seeds_from_mask
+                # make the seeds yo
+                flprint("using a wm mask for NON-random seeds with a density of {}\n".format(str(cmdLine.seedDensity_)))
+
                 seed_points = seeds_from_mask(wmMaskData,
                                               density=int(cmdLine.seedDensity_),
                                               affine=maskImg.get_affine())
         else:
 
-            from dipy.tracking.utils import seeds_from_mask
             seed_points = seeds_from_mask(maskData,
                                           density=1,
                                           affine=maskImg.get_affine())
@@ -337,7 +335,7 @@ def main():
                                     maskImg.get_affine(),
                                     step_size=cmdLine.stepSize_,
                                     max_cross=cmdLine.maxCross_,
-                                    return_all=cmdLine.returnAll_)
+                                    return_all=False)
 
         # Compute streamlines and store as a list.
         streamlines = list(streamlines)
@@ -383,40 +381,60 @@ def main():
 
     # the number of streamlines, we will use later to normalize
     numStreams = len(streamlines)
-    print('THE NUMBER OF STREAMS IS {0}'.format(numStreams))
-    sys.stdout.flush()
+    flprint('THE NUMBER OF STREAMS IS {0}'.format(numStreams))
 
-    if cmdLine.fsSegs_:
-        print('now making the connectivity matricies')
-        sys.stdout.flush()
+    if cmdLine.parcImgs_:
+        for i in xrange(len(cmdLine.parcImgs_)):
 
-        fsSegs_img = nib.load(cmdLine.fsSegs_)
-        fsSegs_data = fsSegs_img.get_data()
+            flprint('\n\nnow making the connectivity matrices for: {}'.format(str(cmdLine.parcImgs_[i])))
 
-        from dipy.tracking.utils import connectivity_matrix
-        M, grouping = connectivity_matrix(streamlines, fsSegs_data,
-                                          affine=maskImg.get_affine(),
-                                          return_mapping=True,
-                                          mapping_as_streamlines=True)
-        # get rid of the first row yo...
-        M[:1, :] = 0
-        M[:, :1] = 0
+            fsSegs_img = nib.load(cmdLine.parcImgs_[i])
+            fsSegs_data = fsSegs_img.get_data().astype(np.int16)
 
-        print('here is the connectivity')
-        print (M)
+            # lets get the name of the seg to use
+            # in the output writing
+            segBaseName = ntpath.basename(
+              ntpath.splitext(ntpath.splitext(cmdLine.parcImgs_[i])[0])[0])
 
-        # need to normalize the matrix yo
-        norm_M = np.divide(np.array(M, dtype=float), numStreams)
+            from dipy.tracking.utils import connectivity_matrix
+            M, grouping = connectivity_matrix(streamlines, fsSegs_data,
+                                              affine=maskImg.get_affine(),
+                                              return_mapping=True,
+                                              mapping_as_streamlines=True)
 
-        import csv
+            # get rid of the first row because these are connections to '0'
+            M[:1, :] = 0
+            M[:, :1] = 0
 
-        with open(''.join([cmdLine.output_, '_connectivity_norm_segs.csv']), "wb") as f:
-            writer = csv.writer(f)
-            writer.writerows(norm_M)
+            flprint('here is the connectivity: {}'.format(M))
 
-        with open(''.join([cmdLine.output_, '_connectivity_count_segs.csv']), "wb") as f:
-            writer = csv.writer(f)
-            writer.writerows(M)
+            import csv
+
+            with open(''.join([cmdLine.output_, '_', segBaseName,
+                               '_sl_count.csv']), "wb") as f:
+                writer = csv.writer(f)
+                writer.writerows(M)
+
+            # lets also make matrix of the fiber lengths
+            # get the size that this should be...
+
+            fib_lengths = np.zeros(M.shape).astype(np.float32)
+            fib_len_sd = np.zeros(M.shape).astype(np.float32)
+
+            # save the files
+            with open(''.join([cmdLine.output_, '_', segBaseName, '_sl_avglen.csv']), "wb") as f:
+                writer = csv.writer(f)
+                writer.writerows(fib_lengths.astype(np.float32))
+            # and also save as npz
+            np.savez_compressed(''.join([cmdLine.output_, '_', segBaseName, '_sl_avglen.npz']),
+                                fib_lengths.astype(np.float32))
+
+            with open(''.join([cmdLine.output_, '_', segBaseName, '_sl_stdlen.csv']), "wb") as f:
+                writer = csv.writer(f)
+                writer.writerows(fib_len_sd.astype(np.float32))
+            # npz
+            np.savez_compressed(''.join([cmdLine.output_, '_', segBaseName, '_sl_stdlen.npz']),
+                                fib_len_sd.astype(np.float32))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ DENISTY MAP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
