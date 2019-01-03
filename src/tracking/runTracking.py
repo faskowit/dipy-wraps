@@ -10,11 +10,13 @@ inspiration taken from the dipy website
 
 """
 
-import sys
 import h5py
 import ntpath
 import numpy as np
 import nibabel as nib
+import time
+from datetime import timedelta
+
 from src.tracking.args_runTracking import CmdLineRunTracking
 from src.dw_utils.basics import flprint, loaddwibasics
 
@@ -30,8 +32,8 @@ def main():
     cmdLine.check_args()
     
     flprint("command line args read")
-    for attr, value in cmdLine.__dict__.iteritems():
-        print attr, value
+    #for attr, value in cmdLine.__dict__.iteritems():
+    #    print(str(attr), str(value))
 
     dwiImg, maskImg, gtab = loaddwibasics(cmdLine.dwi_,
                                           cmdLine.mask_,
@@ -122,7 +124,7 @@ def main():
             # be the same fiber yo
             totSeeds = seedSize
 
-        indicies = np.random.choice(xrange(seedSize),
+        indicies = np.random.choice(range(seedSize),
                                     size=totSeeds,
                                     replace=True)
 
@@ -136,12 +138,12 @@ def main():
     if cmdLine.saveSeedPoints_:
 
         if cmdLine.randSeed_:
-            seedPointsNpz_name = ''.join([cmdLine.output_, '_',
+            seedPointsNpz_name = ''.join([cmdLine.output_,
                                           '_rand_den',
                                           str(cmdLine.seedDensity_),
                                           '_seeds.npz'])
         else:
-            seedPointsNpz_name = ''.join([cmdLine.output_, '_',
+            seedPointsNpz_name = ''.join([cmdLine.output_,
                                           '_nonrand_den',
                                           str(cmdLine.seedDensity_),
                                           '_seeds.npz'])
@@ -340,6 +342,30 @@ def main():
         exit(1)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # ~~~~~~~~~~~~~~~~~~~~ cluster con ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    # from dipy.tracking.metrics import length
+    # longStreams = [s for s in streamlines if length(s) > cciThr]
+    # longStreamInd = list(length(streamlines))
+
+    flprint("runnin the cci")
+
+    from dipy.tracking.streamline import cluster_confidence
+
+    start_time = time.time()
+    cci = cluster_confidence(streamlines)
+    end_time = time.time()
+
+    flprint("finished cci, took {}".format(str(timedelta(seconds=end_time-start_time))))
+
+    from dipy.tracking.streamline import Streamlines
+    ccistreamlines = Streamlines()
+    for i, sl in enumerate(streamlines):
+        if cci[i] >= 1:
+            ccistreamlines.append(sl)
+
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ TRK IO.TODO--> change it ~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -347,19 +373,35 @@ def main():
 
     if (cmdLine.tractModel_ == 'csa') or (cmdLine.tractModel_ == 'csd'):
 
-        tracks_outputname = ''.join([cmdLine.output_, '_',
+        tracks_outputname = ''.join([cmdLine.output_,
                                      cmdLine.dirGttr_,
                                      '_',
                                      cmdLine.tractModel_,
                                      '_sh',
                                      str(cmdLine.shOrder_),
                                      '.trk'])
+
+        tracks_outputname2 = ''.join([cmdLine.output_,
+                                     cmdLine.dirGttr_,
+                                     '_',
+                                     cmdLine.tractModel_,
+                                     '_sh',
+                                     str(cmdLine.shOrder_),
+                                     '_2.trk'])
     else:
-        tracks_outputname = ''.join([cmdLine.output_, '_',
+        tracks_outputname = ''.join([cmdLine.output_,
                                      cmdLine.dirGttr_,
                                      '_',
                                      cmdLine.tractModel_,
                                      '.trk'])
+
+        tracks_outputname2 = ''.join([cmdLine.output_,
+                                     cmdLine.dirGttr_,
+                                     '_',
+                                     cmdLine.tractModel_,
+                                     '_sh',
+                                     str(cmdLine.shOrder_),
+                                     '_2.trk'])
 
     flprint('The output tracks name is: {}'.format(tracks_outputname))
 
@@ -367,8 +409,10 @@ def main():
     from dipy.io.trackvis import save_trk
     save_trk(tracks_outputname, streamlines, maskImg.affine, maskData.shape)
 
-    #from dipy.io.streamline import save_trk
-    #save_trk(tracks_outputname, streamlines, maskImg.affine,
+    save_trk(tracks_outputname2, ccistreamlines, maskImg.affine, maskData.shape)
+
+    # from dipy.io.streamline import save_trk
+    # save_trk(tracks_outputname, streamlines, maskImg.affine,
     #         header=maskImg.header,
     #         vox_size=maskImg.header.get_zooms(),
     #         shape=maskImg.shape)
@@ -385,7 +429,7 @@ def main():
     flprint('THE NUMBER OF STREAMS IS {0}'.format(numStreams))
 
     if cmdLine.parcImgs_:
-        for i in xrange(len(cmdLine.parcImgs_)):
+        for i in range(len(cmdLine.parcImgs_)):
 
             flprint('\n\nnow making the connectivity matrices for: {}'.format(str(cmdLine.parcImgs_[i])))
 
@@ -413,7 +457,7 @@ def main():
             import csv
 
             with open(''.join([cmdLine.output_, '_', segBaseName,
-                               '_sl_count.csv']), "wb") as f:
+                               '_sl_count.csv']), "w") as f:
                 writer = csv.writer(f)
                 writer.writerows(M)
 
@@ -424,14 +468,14 @@ def main():
             fib_len_sd = np.zeros(M.shape).astype(np.float32)
 
             # save the files
-            with open(''.join([cmdLine.output_, '_', segBaseName, '_sl_avglen.csv']), "wb") as f:
+            with open(''.join([cmdLine.output_, '_', segBaseName, '_sl_avglen.csv']), "w") as f:
                 writer = csv.writer(f)
                 writer.writerows(fib_lengths.astype(np.float32))
             # and also save as npz
             np.savez_compressed(''.join([cmdLine.output_, '_', segBaseName, '_sl_avglen.npz']),
                                 fib_lengths.astype(np.float32))
 
-            with open(''.join([cmdLine.output_, '_', segBaseName, '_sl_stdlen.csv']), "wb") as f:
+            with open(''.join([cmdLine.output_, '_', segBaseName, '_sl_stdlen.csv']), "w") as f:
                 writer = csv.writer(f)
                 writer.writerows(fib_len_sd.astype(np.float32))
             # npz
@@ -439,31 +483,33 @@ def main():
                                 fib_len_sd.astype(np.float32))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ~~~~~~~~~~~~~~~~~~~~ DENISTY MAP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # ~~~~~~~~~~~~~~~~~~~~ DENSITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    density_outputname = ''.join([cmdLine.output_, cmdLine.dirGttr_,
+                                  '_', cmdLine.tractModel_,
+                                  '_density.nii.gz'])
+
+    densImg = make_density_img(streamlines, maskImg, 1)
+    nib.save(densImg, density_outputname)
+
+def make_density_img(streams, maskimg, resmultiply):
 
     from dipy.tracking.utils import density_map
 
-    new_affine = maskImg.affine
-    new_affine[0:3, 0:3] = np.multiply(new_affine[0:3, 0:3], 0.5)
+    # initialize a new affine
+    new_affine = maskimg.affine
 
-    densityData = density_map(streamlines,
-                              vol_dims=(np.multiply(maskImg.shape, 2)),
+    # divide by the res multiplier
+    new_affine[0, 0] = new_affine[0, 0] * 1/resmultiply
+    new_affine[1, 1] = new_affine[1, 1] * 1/resmultiply
+    new_affine[2, 2] = new_affine[2, 2] * 1/resmultiply
+
+    densityData = density_map(streams,
+                              vol_dims=(np.multiply(maskimg.shape, resmultiply)),
                               affine=new_affine)
 
-    # save the image
-    flprint("saving the new image yo")
-
-    density_image = nib.Nifti1Image(densityData, new_affine)
-
-    density_outputname = ''.join([cmdLine.output_,
-                                  '_',
-                                  cmdLine.dirGttr_,
-                                  '_',
-                                  cmdLine.tractModel_,
-                                  '_density.nii.gz'])
-
-    nib.save(density_image, density_outputname)
+    return nib.Nifti1Image(densityData, new_affine)
 
 def make_fa_map(dwidata, maskdata, gtabdata):
 

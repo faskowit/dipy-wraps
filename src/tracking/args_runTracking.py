@@ -18,7 +18,7 @@ class CmdLineRunTracking(CmdLineHandler):
         self.seedPointsFile_ = ''
         self.saveSeedPoints_ = True
         self.randSeed_ = True
-        self.limitTotSeeds_ = None
+        self.limitTotSeeds_ = 0
 
         # tissue classifier
         self.actClasses_ = []
@@ -101,6 +101,9 @@ class CmdLineRunTracking(CmdLineHandler):
 
         self.parser.add_argument('-max_angle', nargs='?',
                                  help="maximum angle to use at each procession in streamline tracking")
+
+        self.parser.add_argument('-cci', action='store_true',
+                                 help="run cluster confidence index")
 
         # parcellation stuff
 
