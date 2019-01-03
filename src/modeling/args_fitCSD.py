@@ -8,7 +8,7 @@ class CmdLineFitCSD(CmdLineHandler):
     def __init__(self, parserdesc):
 
         # initalize the dwi essentials
-        CmdLineHandler.__init__(parserdesc)
+        CmdLineHandler.__init__(self, parserdesc)
 
         # add application specific variables
         self.faThr_ = 0.7
@@ -19,7 +19,7 @@ class CmdLineFitCSD(CmdLineHandler):
     def get_args(self):
 
         # get the basics: dwi, bvals, bvecs, mask, output with object function
-        self.parser = self.dwibasics()
+        self.dwibasics()
 
         # add application specific stuff
         self.parser.add_argument('-fa_thr', nargs='?',

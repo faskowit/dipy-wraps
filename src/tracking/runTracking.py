@@ -11,6 +11,7 @@ inspiration taken from the dipy website
 """
 
 import sys
+import h5py
 import ntpath
 import numpy as np
 import nibabel as nib
@@ -19,8 +20,8 @@ from src.dw_utils.basics import flprint, loaddwibasics
 
 from dipy.segment.mask import applymask
 from dipy.data import get_sphere
-from dipy.reconst.dti import fractional_anisotropy, TensorModel, quantize_evecs
-from dipy.tracking.utils import random_seeds_from_mask , seeds_from_mask
+from dipy.reconst.dti import fractional_anisotropy, TensorModel
+from dipy.tracking.utils import random_seeds_from_mask, seeds_from_mask
 
 def main():
     
@@ -74,8 +75,9 @@ def main():
                 flprint("using a wm mask for random seeds with density of {}\n".format(str(cmdLine.seedDensity_)))
 
                 seed_points = random_seeds_from_mask(wmMaskData,
-                                                     seed_count_per_voxel=cmdLine.seedDensity_,
-                                                     affine=maskImg.get_affine())
+                                                     seeds_count=int(cmdLine.seedDensity_),
+                                                     seed_count_per_voxel=True,
+                                                     affine=maskImg.affine)
             else:
 
                 # make the seeds yo
@@ -83,22 +85,23 @@ def main():
 
                 seed_points = seeds_from_mask(wmMaskData,
                                               density=int(cmdLine.seedDensity_),
-                                              affine=maskImg.get_affine())
+                                              affine=maskImg.affine)
         else:
 
             seed_points = seeds_from_mask(maskData,
                                           density=1,
-                                          affine=maskImg.get_affine())
+                                          affine=maskImg.affine)
 
     else:
 
-        # TODO when writing seeds, write the affine, so we can compare when loading in
-
-        print("loading seed points from file: {}".format(str(cmdLine.seedPointsFile_)))
-        sys.stdout.flush()
+        flprint("loading seed points from file: {}".format(str(cmdLine.seedPointsFile_)))
 
         seedFile = np.load(cmdLine.seedPointsFile_)
-        seed_points = seedFile['arr_0']
+        seed_points = seedFile['seeds']
+
+        if not np.array_equal(seedFile['affine'], maskImg.affine):
+            flprint("affine read from seeds file does not look good")
+            exit(1)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ LIMIT TOT SEEDS? ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -109,7 +112,7 @@ def main():
 
         totSeeds = int(round(float(cmdLine.limitTotSeeds_)))
 
-        print("limiting total seeds to {}".format(totSeeds))
+        flprint("limiting total seeds to {}".format(totSeeds))
 
         seedSize = seed_points.shape[0]
 
@@ -119,14 +122,11 @@ def main():
             # be the same fiber yo
             totSeeds = seedSize
 
-        # indicies = random.sample(xrange(seedSize), totSeeds)
-        # print(indicies)
         indicies = np.random.choice(xrange(seedSize),
                                     size=totSeeds,
                                     replace=True)
 
         new_seeds = [seed_points[i] for i in indicies]
-
         seed_points = np.asarray(new_seeds)
 
         flprint("new shape of seed points is : {}".format(seed_points.shape))
@@ -137,20 +137,22 @@ def main():
 
         if cmdLine.randSeed_:
             seedPointsNpz_name = ''.join([cmdLine.output_, '_',
-                                          '_randinvox',
-                                          '_den',
+                                          '_rand_den',
                                           str(cmdLine.seedDensity_),
-                                          '_seedPoints',
-                                          '.npz'])
+                                          '_seeds.npz'])
         else:
             seedPointsNpz_name = ''.join([cmdLine.output_, '_',
-                                          '_nonrandinvox',
-                                          '_den',
+                                          '_nonrand_den',
                                           str(cmdLine.seedDensity_),
-                                          '_seedPoints',
-                                          '.npz'])
+                                          '_seeds.npz'])
 
-        np.savez_compressed(seedPointsNpz_name, seed_points, 'arr_0')
+        # save mask array, also save the affine corresponding to this space
+        np.savez_compressed(seedPointsNpz_name,
+                            seeds=seed_points,
+                            affine=maskImg.affine)
+
+    # echo to the user how many seeds there are
+    flprint("Seed points with shape: {}\n".format(str(seed_points.shape)))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ CLASSIFIER YO ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -167,7 +169,7 @@ def main():
         faData = make_fa_map(dwiData, maskData, gtab)
 
         from dipy.tracking.local import ThresholdTissueClassifier
-        classifier = ThresholdTissueClassifier(faData, float(cmdLine.faClassify_))
+        classifier = ThresholdTissueClassifier(faData, float(cmdLine.faThr_))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ DIFFUSION / FIBER MODELS ~~~~~~~~~~~~~~~~
@@ -179,7 +181,7 @@ def main():
     # must make this a bit if elif else statement
     if cmdLine.tractModel_ == 'csd':
 
-        print('using the csd model yo')
+        flprint('using the csd model yo')
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~ CSD FIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -193,7 +195,7 @@ def main():
                                                auto_response)
 
             # get the response yo.
-            response, ratio = auto_response(gtab, dwiData, roi_radius=10, fa_thr=0.7)
+            response, ratio = auto_response(gtab, dwiData, roi_radius=10, fa_thr=cmdLine.faThr_)
 
             flprint("the response for the csd is:\n{0}\nwith a ratio of:\n{1}\n".format(response, ratio))
 
@@ -206,15 +208,15 @@ def main():
 
         else:  # i.e. we already have generated the coeffs
 
-            print("loading coeffs from file: {}".format(str(cmdLine.coeffFile_)))
-            sys.stdout.flush()
+            flprint("loading coeffs from file: {}".format(str(cmdLine.coeffFile_)))
 
-            coeffsFile = np.load(cmdLine.coeffFile_)
-            shcoeffs = coeffsFile['arr_0']
+            # the new format yo
+            coeffsFile = h5py.File(cmdLine.coeffFile_, 'r')
+            shcoeffs = np.array(coeffsFile['PAM/coeff'])
 
     elif cmdLine.tractModel_ == 'csa':
 
-        print('using the csa model yo')
+        flprint('using the csa model yo')
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~ CSA FIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -223,7 +225,7 @@ def main():
         from dipy.reconst.shm import CsaOdfModel
         from dipy.direction import peaks_from_model
 
-        print("generating csa model. the sh order is {}".format(cmdLine.shOrder_))
+        flprint("generating csa model. the sh order is {}".format(cmdLine.shOrder_))
 
         csa_model = CsaOdfModel(gtab, sh_order=cmdLine.shOrder_)
         csa_peaks = peaks_from_model(model=csa_model,
@@ -239,29 +241,18 @@ def main():
 
     elif cmdLine.tractModel_ == 'sparse':
 
-        # TODO gotta perhaps implement this one
+        # TODO gotta implement this one
         pass
 
     else:  # this is for DTI model yo.
 
-        print('using the dti model yo')
+        flprint('using the dti model yo')
 
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~ TENSOR FIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
         tensor_model = TensorModel(gtab)
-        faData = make_fa_map(dwiData, maskData, gtab)
-
-        faImg = nib.Nifti1Image(faData.astype(np.float32), maskImg.get_affine())
-
-        # make the output name yo
-        fa_outputname = ''.join([cmdLine.output_, '_fa.nii.gz'])
-        print('The output FA name is: {}'.format(fa_outputname))
-        sys.stdout.flush()
-
-        # same this FA
-        nib.save(faImg, fa_outputname)
 
         if cmdLine.dirGttr_ != 'eudx':
 
@@ -280,8 +271,7 @@ def main():
 
     directionGetter = None
 
-    print("generating the direction gettr\n")
-    sys.stdout.flush()
+    flprint("generating the direction gettr\n")
 
     if (cmdLine.tractModel_ == 'csa') or (cmdLine.tractModel_ == 'csd'):
 
@@ -289,26 +279,28 @@ def main():
 
             from dipy.direction import DeterministicMaximumDirectionGetter
 
-            print("determinisitc direction gettr\n")
+            flprint("determinisitc direction gettr\n")
             directionGetter = DeterministicMaximumDirectionGetter.from_shcoeff(shcoeffs,
-                                                                               max_angle=30.0,
+                                                                               max_angle=cmdLine.maxAngle_,
                                                                                sphere=sphereData)
         elif cmdLine.dirGttr_ == 'probabilistic':
 
             from dipy.direction import ProbabilisticDirectionGetter
 
-            print("prob direction gettr\n")
+            flprint("prob direction gettr\n")
             directionGetter = ProbabilisticDirectionGetter.from_shcoeff(shcoeffs,
-                                                                        max_angle=30.0,
+                                                                        max_angle=cmdLine.maxAngle_,
                                                                         sphere=sphereData)
 
         else:
 
+            # dti tracking must be deterministic
+
             from dipy.direction import DeterministicMaximumDirectionGetter
 
-            print("you forog to to specify a dir gtter, so we will use determinisitc direction gettr\n")
+            flprint("you forgot to to specify a dir gtter, so we will use determinisitc direction gettr\n")
             directionGetter = DeterministicMaximumDirectionGetter.from_shcoeff(shcoeffs,
-                                                                               max_angle=30.0,
+                                                                               max_angle=cmdLine.maxAngle_,
                                                                                sphere=sphereData)
 
     else:
@@ -322,8 +314,7 @@ def main():
 
     streamlines = None
 
-    print("making streamlines yo\n")
-    sys.stdout.flush()
+    flprint("making streamlines yo\n")
 
     if cmdLine.dirGttr_ != 'eudx':
 
@@ -332,7 +323,7 @@ def main():
         streamlines = LocalTracking(directionGetter,
                                     classifier,
                                     seed_points,
-                                    maskImg.get_affine(),
+                                    maskImg.affine,
                                     step_size=cmdLine.stepSize_,
                                     max_cross=cmdLine.maxCross_,
                                     return_all=False)
@@ -340,10 +331,13 @@ def main():
         # Compute streamlines and store as a list.
         streamlines = list(streamlines)
 
-        # the length to trim is 5. but this can be changed
-        # TODO make this user option
         from dipy.tracking.metrics import length
         streamlines = [s for s in streamlines if length(s) > cmdLine.lenThresh_]
+
+    else:
+
+        flprint("this script no longer supports eudx")
+        exit(1)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ TRK IO.TODO--> change it ~~~~~~~~~~~~~~~~
@@ -367,13 +361,20 @@ def main():
                                      cmdLine.tractModel_,
                                      '.trk'])
 
-    print('The output tracks name is: {}'.format(tracks_outputname))
+    flprint('The output tracks name is: {}'.format(tracks_outputname))
 
+    # old usage
     from dipy.io.trackvis import save_trk
-    save_trk(tracks_outputname, streamlines, maskImg.get_affine(), maskData.shape)
+    save_trk(tracks_outputname, streamlines, maskImg.affine, maskData.shape)
 
-    streamlines_np = np.array(streamlines, dtype=np.object)
-    np.savez_compressed('streamlines.npz', streamlines_np)
+    #from dipy.io.streamline import save_trk
+    #save_trk(tracks_outputname, streamlines, maskImg.affine,
+    #         header=maskImg.header,
+    #         vox_size=maskImg.header.get_zooms(),
+    #         shape=maskImg.shape)
+
+    # streamlines_np = np.array(streamlines, dtype=np.object)
+    # np.savez_compressed('streamlines.npz', streamlines_np)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ CONNECTIVITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -397,10 +398,11 @@ def main():
               ntpath.splitext(ntpath.splitext(cmdLine.parcImgs_[i])[0])[0])
 
             from dipy.tracking.utils import connectivity_matrix
-            M, grouping = connectivity_matrix(streamlines, fsSegs_data,
-                                              affine=maskImg.get_affine(),
-                                              return_mapping=True,
-                                              mapping_as_streamlines=True)
+            M = connectivity_matrix(streamlines, fsSegs_data,
+                                    symmetric=True,
+                                    affine=maskImg.affine,
+                                    return_mapping=False,
+                                    mapping_as_streamlines=False)
 
             # get rid of the first row because these are connections to '0'
             M[:1, :] = 0
@@ -442,18 +444,17 @@ def main():
 
     from dipy.tracking.utils import density_map
 
-    dimX = maskData.shape[0]
-    dimY = maskData.shape[1]
-    dimZ = maskData.shape[2]
+    new_affine = maskImg.affine
+    new_affine[0:3, 0:3] = np.multiply(new_affine[0:3, 0:3], 0.5)
 
-    densityData = density_map(streamlines=streamlines,
-                              vol_dims=(dimX, dimY, dimZ),
-                              affine=maskImg.get_affine())
+    densityData = density_map(streamlines,
+                              vol_dims=(np.multiply(maskImg.shape, 2)),
+                              affine=new_affine)
+
     # save the image
-    print("saving the new image yo")
-    sys.stdout.flush()
+    flprint("saving the new image yo")
 
-    density_image = nib.Nifti1Image(densityData.astype(np.float32), maskImg.get_affine())
+    density_image = nib.Nifti1Image(densityData, new_affine)
 
     density_outputname = ''.join([cmdLine.output_,
                                   '_',
