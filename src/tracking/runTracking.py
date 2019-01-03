@@ -25,6 +25,7 @@ from dipy.data import get_sphere
 from dipy.reconst.dti import fractional_anisotropy, TensorModel
 from dipy.tracking.utils import random_seeds_from_mask, seeds_from_mask
 
+
 def main():
     
     cmdLine = CmdLineRunTracking("dipy streamline tracking yo")
@@ -32,7 +33,7 @@ def main():
     cmdLine.check_args()
     
     flprint("command line args read")
-    #for attr, value in cmdLine.__dict__.iteritems():
+    # for attr, value in cmdLine.__dict__.iteritems():
     #    print(str(attr), str(value))
 
     dwiImg, maskImg, gtab = loaddwibasics(cmdLine.dwi_,
@@ -345,29 +346,37 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~ cluster con ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    # from dipy.tracking.metrics import length
-    # longStreams = [s for s in streamlines if length(s) > cciThr]
-    # longStreamInd = list(length(streamlines))
+    if cmdLine.runCCI_:
 
-    flprint("runnin the cci")
+        flprint("running the cci")
 
-    from dipy.tracking.streamline import cluster_confidence
+        from dipy.tracking.streamline import cluster_confidence
 
-    start_time = time.time()
-    cci = cluster_confidence(streamlines)
-    end_time = time.time()
+        start_time = time.time()
+        cci = cluster_confidence(streamlines)
+        end_time = time.time()
 
-    flprint("finished cci, took {}".format(str(timedelta(seconds=end_time-start_time))))
+        flprint("finished cci, took {}".format(str(timedelta(seconds=end_time-start_time))))
 
-    from dipy.tracking.streamline import Streamlines
-    ccistreamlines = Streamlines()
-    for i, sl in enumerate(streamlines):
-        if cci[i] >= 1:
-            ccistreamlines.append(sl)
+        from dipy.tracking.streamline import Streamlines
+
+        ccistreamlines = Streamlines()
+        numRemoved = 0
+
+        for i, sl in enumerate(streamlines):
+            if cci[i] >= 1:
+                ccistreamlines.append(sl)
+                numRemoved += 1
+
+        flprint("number of streamlines removed with cci: {}".format(str(numRemoved)))
+
+        streamlines = ccistreamlines
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # ~~~~~~~~~~~~~~~~~~~~ TRK IO.TODO--> change it ~~~~~~~~~~~~~~~~
+    # ~~~~~~~~~~~~~~~~~~~~ TRK IO.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    # TODO incorporate new streamline io
 
     tracks_outputname = None
 
@@ -381,13 +390,6 @@ def main():
                                      str(cmdLine.shOrder_),
                                      '.trk'])
 
-        tracks_outputname2 = ''.join([cmdLine.output_,
-                                     cmdLine.dirGttr_,
-                                     '_',
-                                     cmdLine.tractModel_,
-                                     '_sh',
-                                     str(cmdLine.shOrder_),
-                                     '_2.trk'])
     else:
         tracks_outputname = ''.join([cmdLine.output_,
                                      cmdLine.dirGttr_,
@@ -395,21 +397,11 @@ def main():
                                      cmdLine.tractModel_,
                                      '.trk'])
 
-        tracks_outputname2 = ''.join([cmdLine.output_,
-                                     cmdLine.dirGttr_,
-                                     '_',
-                                     cmdLine.tractModel_,
-                                     '_sh',
-                                     str(cmdLine.shOrder_),
-                                     '_2.trk'])
-
     flprint('The output tracks name is: {}'.format(tracks_outputname))
 
     # old usage
     from dipy.io.trackvis import save_trk
     save_trk(tracks_outputname, streamlines, maskImg.affine, maskData.shape)
-
-    save_trk(tracks_outputname2, ccistreamlines, maskImg.affine, maskData.shape)
 
     # from dipy.io.streamline import save_trk
     # save_trk(tracks_outputname, streamlines, maskImg.affine,
@@ -493,6 +485,7 @@ def main():
     densImg = make_density_img(streamlines, maskImg, 1)
     nib.save(densImg, density_outputname)
 
+
 def make_density_img(streams, maskimg, resmultiply):
 
     from dipy.tracking.utils import density_map
@@ -511,6 +504,7 @@ def make_density_img(streams, maskimg, resmultiply):
 
     return nib.Nifti1Image(densityData, new_affine)
 
+
 def make_fa_map(dwidata, maskdata, gtabdata):
 
     tensor_model = TensorModel(gtabdata)
@@ -525,6 +519,7 @@ def make_fa_map(dwidata, maskdata, gtabdata):
     fadata = np.clip(fadata, 0, 1)
 
     return fadata
+
 
 def act_classifier(cmdlineobj):
 

@@ -3,6 +3,7 @@ __author__ = 'jfaskowitz'
 from src.dw_utils.cmdline import CmdLineHandler
 from src.dw_utils.basics import isfloat, isint, checkisfile, flprint
 
+
 class CmdLineRunTracking(CmdLineHandler):
 
     def __init__(self, parserdesc):
@@ -33,6 +34,7 @@ class CmdLineRunTracking(CmdLineHandler):
         self.maxCross_ = None
         self.lenThresh_ = 20
         self.maxAngle_ = 20
+        self.runCCI_ = False
 
         # parcellations for con mats
         self.parcImgs_ = []
@@ -141,9 +143,9 @@ class CmdLineRunTracking(CmdLineHandler):
         if args.seed_file:
             self.seedPointsFile_ = args.seed_file
         if args.save_seeds:
-            self.saveSeedPoints_ = args.save_seeds
+            self.saveSeedPoints_ = True
         if args.rand_seed:
-            self.randSeed_ = args.rand_seed
+            self.randSeed_ = True
         if args.limit_seed_count:
             self.limitTotSeeds_ = args.limit_seed_count
 
@@ -165,6 +167,8 @@ class CmdLineRunTracking(CmdLineHandler):
             self.lenThresh_ = args.len_thr
         if args.max_angle:
             self.maxAngle_ = args.max_angle
+        if args.cci:
+            self.runCCI_ = True
 
         if args.segs:
             self.parcImgs_ = args.segs
