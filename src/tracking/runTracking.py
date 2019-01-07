@@ -348,15 +348,13 @@ def main():
 
     if cmdLine.runCCI_:
 
-        flprint("running the cci")
+        numcciReps = 10
+        cciIterResults = np.zeros([len(streamlines), numcciReps])
 
-        from dipy.tracking.streamline import cluster_confidence
+        for i in range(numcciReps):
+            cciIterResults[:, i] = cci_iterative(streamlines, 10000)
 
-        start_time = time.time()
-        cci = cluster_confidence(streamlines)
-        end_time = time.time()
-
-        flprint("finished cci, took {}".format(str(timedelta(seconds=end_time-start_time))))
+        cci = np.amax(cciIterResults, axis=1)
 
         from dipy.tracking.streamline import Streamlines
 
@@ -371,6 +369,7 @@ def main():
 
         flprint("number of streamlines removed with cci: {}".format(str(numRemoved)))
 
+        old_stream = streamlines
         streamlines = ccistreamlines
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -391,6 +390,14 @@ def main():
                                      str(cmdLine.shOrder_),
                                      '.trk'])
 
+        tracks_outputname2 = ''.join([cmdLine.output_,
+                                     cmdLine.dirGttr_,
+                                     '_',
+                                     cmdLine.tractModel_,
+                                     '_sh',
+                                     str(cmdLine.shOrder_),
+                                     'old.trk'])
+
     else:
         tracks_outputname = ''.join([cmdLine.output_,
                                      cmdLine.dirGttr_,
@@ -403,6 +410,9 @@ def main():
     # old usage
     from dipy.io.trackvis import save_trk
     save_trk(tracks_outputname, streamlines, maskImg.affine, maskData.shape)
+
+    from dipy.io.trackvis import save_trk
+    save_trk(tracks_outputname2, old_stream, maskImg.affine, maskData.shape)
 
     # from dipy.io.streamline import save_trk
     # save_trk(tracks_outputname, streamlines, maskImg.affine,
@@ -550,6 +560,52 @@ def act_classifier(cmdlineobj):
     exclude_map = csfData
 
     return ActTissueClassifier(include_map, exclude_map)
+
+
+def cci_iterative(inputstreams, cciSize=10000):
+
+    from dipy.tracking.streamline import cluster_confidence
+
+    flprint("running the cci iterative")
+
+    # need to breakup streamlines into manageable chunks
+    totalStreams = len(inputstreams)
+
+    if totalStreams < cciSize:
+        # you can just run it normally
+
+        start_time = time.time()
+        cciResults = cluster_confidence(inputstreams)
+        end_time = time.time()
+
+    else:
+
+        randInd = list(range(totalStreams))
+        # shuffle the indices in place
+        np.random.shuffle(randInd)
+
+        streamChunkInd = list(chunker(randInd, cciSize))
+
+        # allocate the array
+        cciResults = np.zeros(totalStreams)
+
+        start_time = time.time()
+
+        for i in range(len(streamChunkInd)):
+
+            flprint("cci iter: {} of {}".format(str(i+1), str(len(streamChunkInd))))
+            cciResults[streamChunkInd[i]] = cluster_confidence(inputstreams[streamChunkInd[i]])
+
+        end_time = time.time()
+
+    flprint("finished cci, took {}".format(str(timedelta(seconds=end_time - start_time))))
+
+    return cciResults
+
+
+def chunker(seq, size):
+    # https://stackoverflow.com/questions/434287/what-is-the-most-pythonic-way-to-iterate-over-a-list-in-chunks
+    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 
 if __name__ == '__main__':
