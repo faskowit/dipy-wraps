@@ -366,6 +366,7 @@ def main():
         for i, sl in enumerate(streamlines):
             if cci[i] >= 1:
                 ccistreamlines.append(sl)
+            else:
                 numRemoved += 1
 
         flprint("number of streamlines removed with cci: {}".format(str(numRemoved)))
@@ -434,11 +435,11 @@ def main():
               ntpath.splitext(ntpath.splitext(cmdLine.parcImgs_[i])[0])[0])
 
             from dipy.tracking.utils import connectivity_matrix
-            M = connectivity_matrix(streamlines, fsSegs_data,
+            M , grouping = connectivity_matrix(streamlines, fsSegs_data,
                                     symmetric=True,
                                     affine=maskImg.affine,
-                                    return_mapping=False,
-                                    mapping_as_streamlines=False)
+                                    return_mapping=True,
+                                    mapping_as_streamlines=True)
 
             # get rid of the first row because these are connections to '0'
             M[:1, :] = 0
@@ -448,7 +449,7 @@ def main():
 
             import csv
 
-            with open(''.join([cmdLine.output_, '_', segBaseName,
+            with open(''.join([cmdLine.output_, segBaseName,
                                '_sl_count.csv']), "w") as f:
                 writer = csv.writer(f)
                 writer.writerows(M)
@@ -459,20 +460,24 @@ def main():
             fib_lengths = np.zeros(M.shape).astype(np.float32)
             fib_len_sd = np.zeros(M.shape).astype(np.float32)
 
+            # by row
+            for x in range(M.shape[0]):
+                # by column
+                for y in range(M.shape[1]):
+
+                    # check if entry in dict, if so, do more stuff
+                    if (x, y) in grouping:
+
+                        from dipy.tracking.utils import length
+
+                        # now we record these values
+                        stream_group = length(grouping[x, y], affine=maskImg.affine)
+                        fib_lengths[x, y] = np.around(np.nanmean(list(stream_group)), 2)
+
             # save the files
-            with open(''.join([cmdLine.output_, '_', segBaseName, '_sl_avglen.csv']), "w") as f:
+            with open(''.join([cmdLine.output_, segBaseName, '_sl_avglen.csv']), "w") as f:
                 writer = csv.writer(f)
                 writer.writerows(fib_lengths.astype(np.float32))
-            # and also save as npz
-            np.savez_compressed(''.join([cmdLine.output_, '_', segBaseName, '_sl_avglen.npz']),
-                                fib_lengths.astype(np.float32))
-
-            with open(''.join([cmdLine.output_, '_', segBaseName, '_sl_stdlen.csv']), "w") as f:
-                writer = csv.writer(f)
-                writer.writerows(fib_len_sd.astype(np.float32))
-            # npz
-            np.savez_compressed(''.join([cmdLine.output_, '_', segBaseName, '_sl_stdlen.npz']),
-                                fib_len_sd.astype(np.float32))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ DENSITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
