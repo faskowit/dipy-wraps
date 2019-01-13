@@ -227,6 +227,10 @@ class CmdLineRunTracking(CmdLineHandler):
             for x in range(len(self.parcImgs_)):
                 checkisfile(self.parcImgs_[x])
 
+        # if it is set, because it can be 'None' if not set
+        if self.maxCross_:
+            self.maxCross_ = int(self.maxCross_)
+
         if self.seedDensity_ and not isint(self.seedDensity_) or self.seedDensity_ > 10:
             flprint("seed density looks wrong. exiting")
             exit(1)

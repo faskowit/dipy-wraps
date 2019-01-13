@@ -12,6 +12,7 @@ inspiration taken from the dipy website
 
 import h5py
 import ntpath
+import csv
 import numpy as np
 import nibabel as nib
 import time
@@ -140,12 +141,12 @@ def main():
 
         if cmdLine.randSeed_:
             seedPointsNpz_name = ''.join([cmdLine.output_,
-                                          '_rand_den',
+                                          'rand_den',
                                           str(cmdLine.seedDensity_),
                                           '_seeds.npz'])
         else:
             seedPointsNpz_name = ''.join([cmdLine.output_,
-                                          '_nonrand_den',
+                                          'nonrand_den',
                                           str(cmdLine.seedDensity_),
                                           '_seeds.npz'])
 
@@ -169,7 +170,7 @@ def main():
 
     else:
 
-        faData = make_fa_map(dwiData, maskData, gtab)
+        faData, _ = make_fa_map(dwiData, maskData, gtab)
 
         from dipy.tracking.local import ThresholdTissueClassifier
         classifier = ThresholdTissueClassifier(faData, float(cmdLine.faThr_))
@@ -284,7 +285,7 @@ def main():
 
             flprint("determinisitc direction gettr\n")
             directionGetter = DeterministicMaximumDirectionGetter.from_shcoeff(shcoeffs,
-                                                                               max_angle=cmdLine.maxAngle_,
+                                                                               max_angle=np.float(cmdLine.maxAngle_),
                                                                                sphere=sphereData)
         elif cmdLine.dirGttr_ == 'probabilistic':
 
@@ -292,7 +293,7 @@ def main():
 
             flprint("prob direction gettr\n")
             directionGetter = ProbabilisticDirectionGetter.from_shcoeff(shcoeffs,
-                                                                        max_angle=cmdLine.maxAngle_,
+                                                                        max_angle=np.float(cmdLine.maxAngle_),
                                                                         sphere=sphereData)
 
         else:
@@ -303,7 +304,7 @@ def main():
 
             flprint("you forgot to to specify a dir gtter, so we will use determinisitc direction gettr\n")
             directionGetter = DeterministicMaximumDirectionGetter.from_shcoeff(shcoeffs,
-                                                                               max_angle=cmdLine.maxAngle_,
+                                                                               max_angle=np.float(cmdLine.maxAngle_),
                                                                                sphere=sphereData)
 
     else:
@@ -327,15 +328,27 @@ def main():
                                     classifier,
                                     seed_points,
                                     maskImg.affine,
-                                    step_size=cmdLine.stepSize_,
+                                    step_size=np.float(cmdLine.stepSize_),
                                     max_cross=cmdLine.maxCross_,
                                     return_all=False)
 
-        # Compute streamlines and store as a list.
+        start_time = time.time()
+
+        # Compute streamlines
         streamlines = list(streamlines)
 
+        end_time = time.time()
+
+        flprint("finished generating streams, took {}".format(str(timedelta(seconds=end_time - start_time))))
+
+        # this is the length function that acts on lists
         from dipy.tracking.metrics import length
-        streamlines = [s for s in streamlines if length(s) > cmdLine.lenThresh_]
+        streamlines = [s for s in streamlines if length(s) > np.int(cmdLine.lenThresh_)]
+
+        from dipy.tracking.streamline import Streamlines
+        streamlines = Streamlines(streamlines)
+
+        flprint("initially generated {} streamlines".format(str(len(streamlines))))
 
     else:
 
@@ -348,13 +361,13 @@ def main():
 
     if cmdLine.runCCI_:
 
-        numcciReps = 10
+        numcciReps = 5
         cciIterResults = np.zeros([len(streamlines), numcciReps])
 
         for i in range(numcciReps):
-            cciIterResults[:, i] = cci_iterative(streamlines, 10000)
+            cciIterResults[:, i] = cci_iterative(streamlines, 1000, 10)
 
-        cci = np.amax(cciIterResults, axis=1)
+        cci = np.nanmax(cciIterResults, axis=1)
 
         from dipy.tracking.streamline import Streamlines
 
@@ -362,15 +375,20 @@ def main():
         numRemoved = 0
 
         for i, sl in enumerate(streamlines):
-            if cci[i] >= 1:
+            if cci[i] >= 0.25:
                 ccistreamlines.append(sl)
             else:
                 numRemoved += 1
 
         flprint("number of streamlines removed with cci: {}".format(str(numRemoved)))
 
-        old_stream = streamlines
+        # old_stream = streamlines
         streamlines = ccistreamlines
+
+        cciResults_name = ''.join([cmdLine.output_, 'cciresults.npz'])
+
+        # save mask array, also save the affine corresponding to this space
+        np.savez_compressed(cciResults_name, cciIterResults)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ TRK IO.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -390,13 +408,13 @@ def main():
                                      str(cmdLine.shOrder_),
                                      '.trk'])
 
-        tracks_outputname2 = ''.join([cmdLine.output_,
-                                     cmdLine.dirGttr_,
-                                     '_',
-                                     cmdLine.tractModel_,
-                                     '_sh',
-                                     str(cmdLine.shOrder_),
-                                     'old.trk'])
+        # tracks_outputname2 = ''.join([cmdLine.output_,
+        #                              cmdLine.dirGttr_,
+        #                              '_',
+        #                              cmdLine.tractModel_,
+        #                              '_sh',
+        #                              str(cmdLine.shOrder_),
+        #                              'old.trk'])
 
     else:
         tracks_outputname = ''.join([cmdLine.output_,
@@ -411,8 +429,8 @@ def main():
     from dipy.io.trackvis import save_trk
     save_trk(tracks_outputname, streamlines, maskImg.affine, maskData.shape)
 
-    from dipy.io.trackvis import save_trk
-    save_trk(tracks_outputname2, old_stream, maskImg.affine, maskData.shape)
+    # from dipy.io.trackvis import save_trk
+    # save_trk(tracks_outputname2, streamlines, np.eye(4), maskData.shape)
 
     # from dipy.io.streamline import save_trk
     # save_trk(tracks_outputname, streamlines, maskImg.affine,
@@ -432,6 +450,10 @@ def main():
     flprint('THE NUMBER OF STREAMS IS {0}'.format(numStreams))
 
     if cmdLine.parcImgs_:
+
+        flprint("fitting the fa map for conn mat cal")
+        _, tenfit = make_fa_map(dwiData, maskData, gtab)
+
         for i in range(len(cmdLine.parcImgs_)):
 
             flprint('\n\nnow making the connectivity matrices for: {}'.format(str(cmdLine.parcImgs_[i])))
@@ -443,51 +465,29 @@ def main():
             # in the output writing
             segBaseName = ntpath.basename(
               ntpath.splitext(ntpath.splitext(cmdLine.parcImgs_[i])[0])[0])
+            # basename of all the outputs
+            conmatBasename = ''.join([cmdLine.output_, segBaseName, '_'])
 
             from dipy.tracking.utils import connectivity_matrix
-            M , grouping = connectivity_matrix(streamlines, fsSegs_data,
-                                    symmetric=True,
-                                    affine=maskImg.affine,
-                                    return_mapping=True,
-                                    mapping_as_streamlines=True)
+            M, grouping = connectivity_matrix(streamlines, fsSegs_data,
+                                              symmetric=True,
+                                              affine=maskImg.affine,
+                                              return_mapping=True,
+                                              mapping_as_streamlines=True)
 
             # get rid of the first row because these are connections to '0'
             M[:1, :] = 0
             M[:, :1] = 0
 
-            flprint('here is the connectivity: {}'.format(M))
-
-            import csv
-
-            with open(''.join([cmdLine.output_, segBaseName,
-                               '_sl_count.csv']), "w") as f:
-                writer = csv.writer(f)
-                writer.writerows(M)
-
-            # lets also make matrix of the fiber lengths
-            # get the size that this should be...
-
-            fib_lengths = np.zeros(M.shape).astype(np.float32)
-            fib_len_sd = np.zeros(M.shape).astype(np.float32)
-
-            # by row
-            for x in range(M.shape[0]):
-                # by column
-                for y in range(M.shape[1]):
-
-                    # check if entry in dict, if so, do more stuff
-                    if (x, y) in grouping:
-
-                        from dipy.tracking.utils import length
-
-                        # now we record these values
-                        stream_group = length(grouping[x, y], affine=maskImg.affine)
-                        fib_lengths[x, y] = np.around(np.nanmean(list(stream_group)), 2)
+            fib_lengths = mat_stream_lengths(M, grouping, aff=maskImg.affine)
+            mean_fa, _ = mat_indicies_along_streams(M, grouping, tenfit.fa, aff=maskImg.affine)
+            mean_md, _ = mat_indicies_along_streams(M, grouping, tenfit.md, aff=maskImg.affine)
 
             # save the files
-            with open(''.join([cmdLine.output_, segBaseName, '_sl_avglen.csv']), "w") as f:
-                writer = csv.writer(f)
-                writer.writerows(fib_lengths.astype(np.float32))
+            ex_csv(''.join([conmatBasename, 'slcounts.csv']), M)
+            ex_csv(''.join([conmatBasename, 'lengths.csv']), fib_lengths)
+            ex_csv(''.join([conmatBasename, 'meanfa.csv']), mean_fa)
+            ex_csv(''.join([conmatBasename, 'meanmd.csv']), mean_md)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ DENSITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -499,6 +499,60 @@ def main():
 
     densImg = make_density_img(streamlines, maskImg, 1)
     nib.save(densImg, density_outputname)
+
+
+def mat_stream_lengths(mat, group, aff=np.eye(4)):
+
+    retmat = np.zeros(mat.shape, dtype=np.float)
+
+    # by row
+    for x in range(mat.shape[0]):
+        # by column
+        for y in range(mat.shape[1]):
+
+            # check if entry in dict, if so, do more stuff
+            if (x, y) in group:
+                from dipy.tracking.utils import length
+
+                # now we record these values
+                stream_group_len = length(group[x, y], affine=aff)
+                retmat[x, y] = np.around(np.nanmean(list(stream_group_len)), 2)
+
+    return retmat
+
+
+def mat_indicies_along_streams(mat, group, infovol, aff=np.eye(4), stdstreamlen=50):
+
+    meanretmat = np.zeros(mat.shape, dtype=np.float)
+    medianretmat = np.zeros(mat.shape, dtype=np.float)
+
+    # will trim the lower %5 and top %5 of streamline
+    trimlen = np.int(np.floor(stdstreamlen / 20))
+
+    # by row
+    for x in range(mat.shape[0]):
+        # by column
+        for y in range(mat.shape[1]):
+
+            # check if entry in dict, if so, do more stuff
+            if (x, y) in group:
+
+                # first lets resample all streamlines to const length
+                from dipy.tracking.streamlinespeed import set_number_of_points
+                stand_stream_group = set_number_of_points(group[x, y], stdstreamlen)
+
+                from dipy.tracking.streamline import values_from_volume
+                stream_vals = values_from_volume(infovol, stand_stream_group, aff)
+
+                vals = np.zeros(len(stream_vals))
+                for ind, sv in enumerate(stream_vals):
+                    vals[ind] = np.mean(sv[trimlen:-trimlen])
+
+                # flprint(str(np.mean(vals)))
+                meanretmat[x, y] = np.around(np.mean(vals), 6)
+                medianretmat[x, y] = np.around(np.median(vals), 6)
+
+    return meanretmat, medianretmat
 
 
 def make_density_img(streams, maskimg, resmultiply):
@@ -519,7 +573,6 @@ def make_density_img(streams, maskimg, resmultiply):
 
     return nib.Nifti1Image(densityData, new_affine)
 
-
 def make_fa_map(dwidata, maskdata, gtabdata):
 
     tensor_model = TensorModel(gtabdata)
@@ -533,7 +586,7 @@ def make_fa_map(dwidata, maskdata, gtabdata):
     # also we can clip values outside of 0 and 1
     fadata = np.clip(fadata, 0, 1)
 
-    return fadata
+    return fadata, tenfit
 
 
 def act_classifier(cmdlineobj):
@@ -562,11 +615,11 @@ def act_classifier(cmdlineobj):
     return ActTissueClassifier(include_map, exclude_map)
 
 
-def cci_iterative(inputstreams, cciSize=10000):
+def cci_iterative(inputstreams, cciSize=10000, cciSubSmp=12):
 
     from dipy.tracking.streamline import cluster_confidence
 
-    flprint("running the cci iterative")
+    flprint("running the cci iterative with subsamp: {}".format(str(cciSubSmp)))
 
     # need to breakup streamlines into manageable chunks
     totalStreams = len(inputstreams)
@@ -575,7 +628,17 @@ def cci_iterative(inputstreams, cciSize=10000):
         # you can just run it normally
 
         start_time = time.time()
-        cciResults = cluster_confidence(inputstreams)
+
+        try:
+            cciResults = cluster_confidence(inputstreams,
+                                            subsample=cciSubSmp,
+                                            max_mdf=6)
+        except ValueError:
+            print("caught rare value error")
+            nanvals = np.empty(len(inputstreams))
+            nanvals.fill(np.nan)
+            cciResults = nanvals
+
         end_time = time.time()
 
     else:
@@ -594,7 +657,17 @@ def cci_iterative(inputstreams, cciSize=10000):
         for i in range(len(streamChunkInd)):
 
             flprint("cci iter: {} of {}".format(str(i+1), str(len(streamChunkInd))))
-            cciResults[streamChunkInd[i]] = cluster_confidence(inputstreams[streamChunkInd[i]])
+
+            try:
+                cciResults[streamChunkInd[i]] = cluster_confidence(inputstreams[streamChunkInd[i]],
+                                                                   subsample=cciSubSmp,
+                                                                   max_mdf=6)
+
+            except ValueError:
+                print("caught rare value error")
+                nanvals = np.empty(len(inputstreams[streamChunkInd[i]]))
+                nanvals.fill(np.nan)
+                cciResults[streamChunkInd[i]] = nanvals
 
         end_time = time.time()
 
@@ -606,6 +679,11 @@ def cci_iterative(inputstreams, cciSize=10000):
 def chunker(seq, size):
     # https://stackoverflow.com/questions/434287/what-is-the-most-pythonic-way-to-iterate-over-a-list-in-chunks
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+
+def ex_csv(filename, data):
+    with open(filename, "w") as f:
+        writer = csv.writer(f)
+        writer.writerows(data)
 
 
 if __name__ == '__main__':
