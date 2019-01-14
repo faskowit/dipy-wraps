@@ -1,5 +1,7 @@
 __author__ = 'jfaskowitz'
 
+import numpy as np
+
 from src.dw_utils.cmdline import CmdLineHandler
 from src.dw_utils.basics import isfloat, isint, checkisfile, flprint
 
@@ -34,7 +36,7 @@ class CmdLineRunTracking(CmdLineHandler):
         self.maxCross_ = None
         self.lenThresh_ = 20
         self.maxAngle_ = 20
-        self.runCCI_ = False
+        self.runCCI_ = 0
 
         # parcellations for con mats
         self.parcImgs_ = []
@@ -104,7 +106,7 @@ class CmdLineRunTracking(CmdLineHandler):
         self.parser.add_argument('-max_angle', nargs='?',
                                  help="maximum angle to use at each procession in streamline tracking")
 
-        self.parser.add_argument('-cci', action='store_true',
+        self.parser.add_argument('-cci', nargs='?',
                                  help="run cluster confidence index")
 
         # parcellation stuff
@@ -139,7 +141,7 @@ class CmdLineRunTracking(CmdLineHandler):
             self.wmMask_ = args.wm_mask
 
         if args.seed_den:
-            self.seedDensity_ = args.seed_den
+            self.seedDensity_ = np.int(args.seed_den)
         if args.seed_file:
             self.seedPointsFile_ = args.seed_file
         if args.save_seeds:
@@ -152,7 +154,7 @@ class CmdLineRunTracking(CmdLineHandler):
         if args.act_imgs:
             self.actClasses_ = args.act_imgs
         if args.fa_thr:
-            self.faThr_ = args.fa_thr
+            self.faThr_ = np.float(args.fa_thr)
 
         if args.tract_model:
             self.tractModel_ = args.tract_model
@@ -160,58 +162,27 @@ class CmdLineRunTracking(CmdLineHandler):
             self.dirGttr_ = args.dir_gttr
 
         if args.step_size:
-            self.stepSize_ = args.step_size
+            self.stepSize_ = np.float(args.step_size)
         if args.max_cross:
-            self.maxCross_ = args.max_cross
+            self.maxCross_ = np.int(args.max_cross)
         if args.len_thr:
-            self.lenThresh_ = args.len_thr
+            self.lenThresh_ = np.float(args.len_thr)
         if args.max_angle:
-            self.maxAngle_ = args.max_angle
+            self.maxAngle_ = np.float(args.max_angle)
         if args.cci:
-            self.runCCI_ = True
+            self.runCCI_ = np.float(args.cci)
 
         if args.segs:
             self.parcImgs_ = args.segs
 
         if args.sh_ord:
-            self.shOrder_ = args.sh_ord
+            self.shOrder_ = np.int(args.sh_ord)
         if args.coeff_file:
             self.coeffFile_ = args.coeff_file
 
     def check_args(self):
 
         self.checkdwibasics()
-
-        '''        # add application specific variables
-        self.wmMask_ = ''
-
-        # seeds
-        self.seedDensity_ = 1
-        self.seedPointsFile_ = ''
-        self.saveSeedPoints_ = True
-        self.randSeed_ = True
-        self.limitTotSeeds_ = ''
-
-        # tissue classifier
-        self.actClasses_ = []
-        self.faThr_ = 0.7
-
-        # related to tracking opts
-        self.tractModel_ = ''
-        self.dirGttr_ = 'deterministic'
-
-        # streamline opts
-        self.stepSize_ = 0.2
-        self.maxCross_ = None
-        self.lenThresh_ = 10
-        self.maxAngle_ = 20
-
-        # parcellations for con mats
-        self.parcImgs_ = []
-
-        # spherical harmonic order for model fitting
-        self.shOrder_ = 6
-        self.coeffFile_ = ''     '''
 
         # check all the possible files
         if self.wmMask_:
