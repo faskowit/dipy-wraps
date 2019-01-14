@@ -324,7 +324,7 @@ def main():
 
         from dipy.tracking.local import LocalTracking
 
-        streamlines = LocalTracking(directionGetter,
+        streamline_generator = LocalTracking(directionGetter,
                                     classifier,
                                     seed_points,
                                     maskImg.affine,
@@ -335,7 +335,7 @@ def main():
         start_time = time.time()
 
         # Compute streamlines
-        streamlines = list(streamlines)
+        streamlines = list(streamline_generator)
 
         end_time = time.time()
 
@@ -359,7 +359,7 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~ cluster con ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    if cmdLine.runCCI_:
+    if cmdLine.runCCI_ > 0:
 
         numcciReps = 5
         cciIterResults = np.zeros([len(streamlines), numcciReps])
@@ -374,13 +374,22 @@ def main():
         ccistreamlines = Streamlines()
         numRemoved = 0
 
+        start_time = time.time()
+
         for i, sl in enumerate(streamlines):
-            if cci[i] >= 0.25:
-                ccistreamlines.append(sl)
+            if cci[i] >= np.float(cmdLine.runCCI_):
+                ccistreamlines.append(sl, cache_build=True)
             else:
                 numRemoved += 1
 
+        # finalize the append
+        ccistreamlines.finalize_append()
+
         flprint("number of streamlines removed with cci: {}".format(str(numRemoved)))
+
+        end_time = time.time()
+
+        flprint("time to create new streams: {}".format(str(timedelta(seconds=end_time - start_time))))
 
         # old_stream = streamlines
         streamlines = ccistreamlines
@@ -408,14 +417,6 @@ def main():
                                      str(cmdLine.shOrder_),
                                      '.trk'])
 
-        # tracks_outputname2 = ''.join([cmdLine.output_,
-        #                              cmdLine.dirGttr_,
-        #                              '_',
-        #                              cmdLine.tractModel_,
-        #                              '_sh',
-        #                              str(cmdLine.shOrder_),
-        #                              'old.trk'])
-
     else:
         tracks_outputname = ''.join([cmdLine.output_,
                                      cmdLine.dirGttr_,
@@ -429,17 +430,11 @@ def main():
     from dipy.io.trackvis import save_trk
     save_trk(tracks_outputname, streamlines, maskImg.affine, maskData.shape)
 
-    # from dipy.io.trackvis import save_trk
-    # save_trk(tracks_outputname2, streamlines, np.eye(4), maskData.shape)
-
     # from dipy.io.streamline import save_trk
     # save_trk(tracks_outputname, streamlines, maskImg.affine,
     #         header=maskImg.header,
     #         vox_size=maskImg.header.get_zooms(),
     #         shape=maskImg.shape)
-
-    # streamlines_np = np.array(streamlines, dtype=np.object)
-    # np.savez_compressed('streamlines.npz', streamlines_np)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ CONNECTIVITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -615,23 +610,23 @@ def act_classifier(cmdlineobj):
     return ActTissueClassifier(include_map, exclude_map)
 
 
-def cci_iterative(inputstreams, cciSize=10000, cciSubSmp=12):
+def cci_iterative(inputstreams, ccisize=10000, ccisubsamp=12):
 
     from dipy.tracking.streamline import cluster_confidence
 
-    flprint("running the cci iterative with subsamp: {}".format(str(cciSubSmp)))
+    flprint("running the cci iterative with subsamp: {}".format(str(ccisubsamp)))
 
     # need to breakup streamlines into manageable chunks
     totalStreams = len(inputstreams)
 
-    if totalStreams < cciSize:
+    if totalStreams < ccisize:
         # you can just run it normally
 
         start_time = time.time()
 
         try:
             cciResults = cluster_confidence(inputstreams,
-                                            subsample=cciSubSmp,
+                                            subsample=ccisubsamp,
                                             max_mdf=6)
         except ValueError:
             print("caught rare value error")
@@ -647,7 +642,7 @@ def cci_iterative(inputstreams, cciSize=10000, cciSubSmp=12):
         # shuffle the indices in place
         np.random.shuffle(randInd)
 
-        streamChunkInd = list(chunker(randInd, cciSize))
+        streamChunkInd = list(chunker(randInd, ccisize))
 
         # allocate the array
         cciResults = np.zeros(totalStreams)
@@ -660,7 +655,7 @@ def cci_iterative(inputstreams, cciSize=10000, cciSubSmp=12):
 
             try:
                 cciResults[streamChunkInd[i]] = cluster_confidence(inputstreams[streamChunkInd[i]],
-                                                                   subsample=cciSubSmp,
+                                                                   subsample=ccisubsamp,
                                                                    max_mdf=6)
 
             except ValueError:
