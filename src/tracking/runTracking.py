@@ -25,6 +25,7 @@ from dipy.segment.mask import applymask
 from dipy.data import get_sphere
 from dipy.reconst.dti import fractional_anisotropy, TensorModel
 from dipy.tracking.utils import random_seeds_from_mask, seeds_from_mask
+from dipy.tracking.streamline import Streamlines
 
 
 def main():
@@ -187,10 +188,6 @@ def main():
 
         flprint('using the csd model yo')
 
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # ~~~~~~~~~~~~~~~~~~~~ CSD FIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
         if not cmdLine.coeffFile_:
 
             flprint("making the CSD ODF model wish sh of {}\n".format(cmdLine.shOrder_))
@@ -222,10 +219,6 @@ def main():
 
         flprint('using the csa model yo')
 
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # ~~~~~~~~~~~~~~~~~~~~ CSA FIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
         from dipy.reconst.shm import CsaOdfModel
         from dipy.direction import peaks_from_model
 
@@ -251,10 +244,6 @@ def main():
     else:  # this is for DTI model yo.
 
         flprint('using the dti model yo')
-
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # ~~~~~~~~~~~~~~~~~~~~ TENSOR FIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
         tensor_model = TensorModel(gtab)
 
@@ -325,27 +314,27 @@ def main():
         from dipy.tracking.local import LocalTracking
 
         streamline_generator = LocalTracking(directionGetter,
-                                    classifier,
-                                    seed_points,
-                                    maskImg.affine,
-                                    step_size=np.float(cmdLine.stepSize_),
-                                    max_cross=cmdLine.maxCross_,
-                                    return_all=False)
+                                             classifier,
+                                             seed_points,
+                                             maskImg.affine,
+                                             step_size=np.float(cmdLine.stepSize_),
+                                             max_cross=cmdLine.maxCross_,
+                                             return_all=False)
 
         start_time = time.time()
 
         # Compute streamlines
         streamlines = list(streamline_generator)
 
-        end_time = time.time()
-
-        flprint("finished generating streams, took {}".format(str(timedelta(seconds=end_time - start_time))))
-
         # this is the length function that acts on lists
         from dipy.tracking.metrics import length
-        streamlines = [s for s in streamlines if length(s) > np.int(cmdLine.lenThresh_)]
+        streamlines = [s for s in streamlines if length(s) > np.float(cmdLine.lenThresh_)]
 
-        from dipy.tracking.streamline import Streamlines
+        end_time = time.time()
+
+        flprint("\nfinished generating streams, took {}".format(str(timedelta(seconds=end_time - start_time))))
+
+        # use the Streamlines type now
         streamlines = Streamlines(streamlines)
 
         flprint("initially generated {} streamlines".format(str(len(streamlines))))
@@ -361,15 +350,14 @@ def main():
 
     if cmdLine.runCCI_ > 0:
 
-        numcciReps = 5
+        numcciReps = 3
         cciIterResults = np.zeros([len(streamlines), numcciReps])
 
         for i in range(numcciReps):
-            cciIterResults[:, i] = cci_iterative(streamlines, 1000, 10)
+            cciIterResults[:, i] = cluster_conf_endp(streamlines, kregions=50, chunksize=1000)
 
-        cci = np.nanmax(cciIterResults, axis=1)
-
-        from dipy.tracking.streamline import Streamlines
+        # mean because we using the clustering on endpoints
+        cci = np.nanmean(cciIterResults, axis=1)
 
         ccistreamlines = Streamlines()
         numRemoved = 0
@@ -424,11 +412,19 @@ def main():
                                      cmdLine.tractModel_,
                                      '.trk'])
 
-    flprint('The output tracks name is: {}'.format(tracks_outputname))
+    flprint("reducing the streamline size")
+    start_time = time.time()
+
+    from dipy.tracking.distances import approx_polygon_track
+    outstreams = Streamlines([approx_polygon_track(s, 0.2) for s in streamlines])
+
+    end_time = time.time()
+    flprint("time to downsample streams: {}".format(str(timedelta(seconds=end_time - start_time))))
 
     # old usage
     from dipy.io.trackvis import save_trk
-    save_trk(tracks_outputname, streamlines, maskImg.affine, maskData.shape)
+    save_trk(tracks_outputname, outstreams, maskImg.affine, maskData.shape)
+    flprint('The output tracks name is: {}'.format(tracks_outputname))
 
     # from dipy.io.streamline import save_trk
     # save_trk(tracks_outputname, streamlines, maskImg.affine,
@@ -450,6 +446,8 @@ def main():
         _, tenfit = make_fa_map(dwiData, maskData, gtab)
 
         for i in range(len(cmdLine.parcImgs_)):
+
+            start_time = time.time()
 
             flprint('\n\nnow making the connectivity matrices for: {}'.format(str(cmdLine.parcImgs_[i])))
 
@@ -475,14 +473,20 @@ def main():
             M[:, :1] = 0
 
             fib_lengths = mat_stream_lengths(M, grouping, aff=maskImg.affine)
-            mean_fa, _ = mat_indicies_along_streams(M, grouping, tenfit.fa, aff=maskImg.affine)
-            mean_md, _ = mat_indicies_along_streams(M, grouping, tenfit.md, aff=maskImg.affine)
+            mean_fa, _ = mat_indicies_along_streams(M, grouping, tenfit.fa,
+                                                    aff=maskImg.affine, stdstreamlen=25)
+            mean_md, _ = mat_indicies_along_streams(M, grouping, tenfit.md,
+                                                    aff=maskImg.affine, stdstreamlen=25)
 
             # save the files
             ex_csv(''.join([conmatBasename, 'slcounts.csv']), M)
             ex_csv(''.join([conmatBasename, 'lengths.csv']), fib_lengths)
             ex_csv(''.join([conmatBasename, 'meanfa.csv']), mean_fa)
             ex_csv(''.join([conmatBasename, 'meanmd.csv']), mean_md)
+
+            end_time = time.time()
+
+            flprint("time to make mats: {}".format(str(timedelta(seconds=end_time - start_time))))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ DENSITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -609,8 +613,42 @@ def act_classifier(cmdlineobj):
 
     return ActTissueClassifier(include_map, exclude_map)
 
+def cluster_conf_endp(inputstreams, kregions=100, chunksize=5000):
+    # function to run cci based on clusters of endpoints
 
-def cci_iterative(inputstreams, ccisize=10000, ccisubsamp=12):
+    start_time = time.time()
+
+    endp1 = [sl[0] for sl in inputstreams]
+    endp2 = [sl[-1] for sl in inputstreams]
+
+    from sklearn.cluster import MiniBatchKMeans
+    miniB1 = MiniBatchKMeans(n_clusters=kregions, max_iter=10)
+    miniB2 = MiniBatchKMeans(n_clusters=kregions, max_iter=10)
+    lab1 = miniB1.fit_predict(endp1)
+    lab2 = miniB2.fit_predict(endp2)
+
+    cciRes = np.zeros([len(inputstreams), 2])
+
+    from itertools import compress
+
+    # loop through each lab
+    for labval in range(kregions):
+
+        flprint("\n\ncci region: {} of {}\n".format(str(labval + 1), str(kregions)))
+
+        tmpstreams = Streamlines(compress(inputstreams, lab1 == labval))
+        cciRes[lab1 == labval, 0] = cci_chunk(tmpstreams, ccichunksize=chunksize, ccisubsamp=10)
+
+        tmpstreams = Streamlines(compress(inputstreams, lab2 == labval))
+        cciRes[lab2 == labval, 1] = cci_chunk(tmpstreams, ccichunksize=chunksize, ccisubsamp=10)
+
+    end_time = time.time()
+
+    flprint("finished cci, took {}".format(str(timedelta(seconds=end_time - start_time))))
+
+    return np.nanmax(cciRes, axis=1)
+
+def cci_chunk(inputstreams, ccichunksize=5000, ccisubsamp=12):
 
     from dipy.tracking.streamline import cluster_confidence
 
@@ -619,7 +657,7 @@ def cci_iterative(inputstreams, ccisize=10000, ccisubsamp=12):
     # need to breakup streamlines into manageable chunks
     totalStreams = len(inputstreams)
 
-    if totalStreams < ccisize:
+    if totalStreams < ccichunksize:
         # you can just run it normally
 
         start_time = time.time()
@@ -627,7 +665,7 @@ def cci_iterative(inputstreams, ccisize=10000, ccisubsamp=12):
         try:
             cciResults = cluster_confidence(inputstreams,
                                             subsample=ccisubsamp,
-                                            max_mdf=6)
+                                            max_mdf=5)
         except ValueError:
             print("caught rare value error")
             nanvals = np.empty(len(inputstreams))
@@ -642,7 +680,7 @@ def cci_iterative(inputstreams, ccisize=10000, ccisubsamp=12):
         # shuffle the indices in place
         np.random.shuffle(randInd)
 
-        streamChunkInd = list(chunker(randInd, ccisize))
+        streamChunkInd = chunker(randInd, ccichunksize, fudgefactor=np.floor(ccichunksize / 5))
 
         # allocate the array
         cciResults = np.zeros(totalStreams)
@@ -651,12 +689,14 @@ def cci_iterative(inputstreams, ccisize=10000, ccisubsamp=12):
 
         for i in range(len(streamChunkInd)):
 
-            flprint("cci iter: {} of {}".format(str(i+1), str(len(streamChunkInd))))
+            flprint("cci iter: {} of {} with size {}".format(str(i+1),
+                                                             str(len(streamChunkInd)),
+                                                             len(streamChunkInd[i])))
 
             try:
                 cciResults[streamChunkInd[i]] = cluster_confidence(inputstreams[streamChunkInd[i]],
                                                                    subsample=ccisubsamp,
-                                                                   max_mdf=6)
+                                                                   max_mdf=5)
 
             except ValueError:
                 print("caught rare value error")
@@ -666,14 +706,22 @@ def cci_iterative(inputstreams, ccisize=10000, ccisubsamp=12):
 
         end_time = time.time()
 
-    flprint("finished cci, took {}".format(str(timedelta(seconds=end_time - start_time))))
+    flprint("finished cci chunk, took {}".format(str(timedelta(seconds=end_time - start_time))))
 
     return cciResults
 
 
-def chunker(seq, size):
+def chunker(seq, size, fudgefactor=10):
     # https://stackoverflow.com/questions/434287/what-is-the-most-pythonic-way-to-iterate-over-a-list-in-chunks
-    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+    chunksList = list((seq[pos:pos + size] for pos in range(0, len(seq), size)))
+
+    # handle some fudge
+    if len(chunksList[-1]) <= fudgefactor:
+        flprint("fudging the chunk size")
+        chunksList[-2] = chunksList[-2] + chunksList[-1]
+        del chunksList[-1]
+
+    return chunksList
 
 def ex_csv(filename, data):
     with open(filename, "w") as f:
