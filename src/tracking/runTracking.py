@@ -472,7 +472,8 @@ def main():
             M[:1, :] = 0
             M[:, :1] = 0
 
-            fib_lengths = mat_stream_lengths(M, grouping, aff=maskImg.affine)
+            # use the default np.eye affine here... to not apply affine twice
+            fib_lengths = mat_stream_lengths(M, grouping)
             mean_fa, _ = mat_indicies_along_streams(M, grouping, tenfit.fa,
                                                     aff=maskImg.affine, stdstreamlen=20)
             mean_md, _ = mat_indicies_along_streams(M, grouping, tenfit.md,
