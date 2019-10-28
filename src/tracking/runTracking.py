@@ -474,9 +474,9 @@ def main():
 
             fib_lengths = mat_stream_lengths(M, grouping, aff=maskImg.affine)
             mean_fa, _ = mat_indicies_along_streams(M, grouping, tenfit.fa,
-                                                    aff=maskImg.affine, stdstreamlen=25)
+                                                    aff=maskImg.affine, stdstreamlen=20)
             mean_md, _ = mat_indicies_along_streams(M, grouping, tenfit.md,
-                                                    aff=maskImg.affine, stdstreamlen=25)
+                                                    aff=maskImg.affine, stdstreamlen=20)
 
             # save the files
             ex_csv(''.join([conmatBasename, 'slcounts.csv']), M)
@@ -637,10 +637,10 @@ def cluster_conf_endp(inputstreams, kregions=100, chunksize=5000):
         flprint("\n\ncci region: {} of {}\n".format(str(labval + 1), str(kregions)))
 
         tmpstreams = Streamlines(compress(inputstreams, lab1 == labval))
-        cciRes[lab1 == labval, 0] = cci_chunk(tmpstreams, ccichunksize=chunksize, ccisubsamp=10)
+        cciRes[lab1 == labval, 0] = cci_chunk(tmpstreams, ccichunksize=chunksize, ccisubsamp=8)
 
         tmpstreams = Streamlines(compress(inputstreams, lab2 == labval))
-        cciRes[lab2 == labval, 1] = cci_chunk(tmpstreams, ccichunksize=chunksize, ccisubsamp=10)
+        cciRes[lab2 == labval, 1] = cci_chunk(tmpstreams, ccichunksize=chunksize, ccisubsamp=8)
 
     end_time = time.time()
 
@@ -665,7 +665,8 @@ def cci_chunk(inputstreams, ccichunksize=5000, ccisubsamp=12):
         try:
             cciResults = cluster_confidence(inputstreams,
                                             subsample=ccisubsamp,
-                                            max_mdf=5)
+                                            max_mdf=5,
+                                            override=True)
         except ValueError:
             print("caught rare value error")
             nanvals = np.empty(len(inputstreams))
@@ -696,7 +697,8 @@ def cci_chunk(inputstreams, ccichunksize=5000, ccisubsamp=12):
             try:
                 cciResults[streamChunkInd[i]] = cluster_confidence(inputstreams[streamChunkInd[i]],
                                                                    subsample=ccisubsamp,
-                                                                   max_mdf=5)
+                                                                   max_mdf=5,
+                                                                   override=True)
 
             except ValueError:
                 print("caught rare value error")
