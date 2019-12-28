@@ -17,10 +17,10 @@ import numpy as np
 import nibabel as nib
 import time
 from datetime import timedelta
-
+# dipy wraps imports
 from src.tracking.args_runTracking import CmdLineRunTracking
 from src.dw_utils.basics import flprint, loaddwibasics
-
+# dipy imports
 from dipy.segment.mask import applymask
 from dipy.data import get_sphere
 from dipy.reconst.dti import fractional_anisotropy, TensorModel
@@ -30,38 +30,35 @@ from dipy.tracking.streamline import Streamlines
 
 def main():
     
-    cmdLine = CmdLineRunTracking("dipy streamline tracking yo")
-    cmdLine.get_args()
-    cmdLine.check_args()
+    command_line = CmdLineRunTracking("dipy streamline tracking yo")
+    command_line.get_args()
+    command_line.check_args()
     
     flprint("command line args read")
-    # for attr, value in cmdLine.__dict__.iteritems():
+    # for attr, value in command_line.__dict__.iteritems():
     #    print(str(attr), str(value))
 
-    dwiImg, maskImg, gtab = loaddwibasics(cmdLine.dwi_,
-                                          cmdLine.mask_,
-                                          cmdLine.bval_,
-                                          cmdLine.bvec_)
+    dwi_img, mask_img, grad_tab = loaddwibasics(command_line.dwi_,
+                                                command_line.mask_,
+                                                command_line.bval_,
+                                                command_line.bvec_)
 
     # get the data from all the images yo
-    dwiData = dwiImg.get_data()
-    maskData = maskImg.get_data()
+    if dwi_img:
+        dwi_data = dwi_img.get_data()
+    mask_data = mask_img.get_data()
+    # mask the dwi_data
+    if dwi_img:
+        dwi_data = applymask(dwi_data, mask_data)
+    wm_mask_data = None
 
-    # mask the dwiData
-    dwiData = applymask(dwiData, maskData)
-
-    wmMaskData = None
-
-    if cmdLine.wmMask_:
-        
+    if command_line.wmMask_:
         flprint("using wm mask provided")
+        wm_mask_img = nib.load(command_line.wmMask_)
+        wm_mask_data = wm_mask_img.get_data()
+        flprint(wm_mask_img.shape)
 
-        wmMaskImg = nib.load(cmdLine.wmMask_)
-        wmMaskData = wmMaskImg.get_data()
-
-        flprint(wmMaskImg.shape)
-
-    sphereData = get_sphere('repulsion724')
+    sphere_data = get_sphere('repulsion724')
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ RANDOM SEED and DENSITY ~~~~~~~~~~~~~~~~~
@@ -69,42 +66,32 @@ def main():
 
     seed_points = None
 
-    if not cmdLine.seedPointsFile_:
-
-        if cmdLine.wmMask_:
-
+    if not command_line.seedPointsFile_:
+        if command_line.wmMask_:
             # this is the common usage
-            if cmdLine.randSeed_:
-
+            if command_line.randSeed_:
                 # make the seeds randomly yo
-                flprint("using a wm mask for random seeds with density of {}\n".format(str(cmdLine.seedDensity_)))
-
-                seed_points = random_seeds_from_mask(wmMaskData,
-                                                     seeds_count=int(cmdLine.seedDensity_),
+                flprint("using a wm mask for random seeds with density of {}\n".format(str(command_line.seedDensity_)))
+                seed_points = random_seeds_from_mask(wm_mask_data,
+                                                     seeds_count=int(command_line.seedDensity_),
                                                      seed_count_per_voxel=True,
-                                                     affine=maskImg.affine)
+                                                     affine=mask_img.affine)
             else:
-
                 # make the seeds yo
-                flprint("using a wm mask for NON-random seeds with a density of {}\n".format(str(cmdLine.seedDensity_)))
-
-                seed_points = seeds_from_mask(wmMaskData,
-                                              density=int(cmdLine.seedDensity_),
-                                              affine=maskImg.affine)
+                flprint("using a wm mask for NON-random seeds with a density of {}\n".format(
+                    str(command_line.seedDensity_)))
+                seed_points = seeds_from_mask(wm_mask_data,
+                                              density=int(command_line.seedDensity_),
+                                              affine=mask_img.affine)
         else:
-
-            seed_points = seeds_from_mask(maskData,
+            seed_points = seeds_from_mask(mask_data,
                                           density=1,
-                                          affine=maskImg.affine)
-
+                                          affine=mask_img.affine)
     else:
-
-        flprint("loading seed points from file: {}".format(str(cmdLine.seedPointsFile_)))
-
-        seedFile = np.load(cmdLine.seedPointsFile_)
-        seed_points = seedFile['seeds']
-
-        if not np.array_equal(seedFile['affine'], maskImg.affine):
+        flprint("loading seed points from file: {}".format(str(command_line.seedPointsFile_)))
+        seed_file = np.load(command_line.seedPointsFile_)
+        seed_points = seed_file['seeds']
+        if not np.array_equal(seed_file['affine'], mask_img.affine):
             flprint("affine read from seeds file does not look good")
             exit(1)
 
@@ -112,49 +99,46 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~ LIMIT TOT SEEDS? ~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    # now limit the amount of seeds if specificed by tot_seeds with replacement
-    if cmdLine.limitTotSeeds_ > 0:
+    # now limit the amount of seeds if specified by tot_seeds with replacement
+    if command_line.limitTotSeeds_ > 0:
+        tot_seeds = int(round(float(command_line.limitTotSeeds_)))
 
-        totSeeds = int(round(float(cmdLine.limitTotSeeds_)))
+        flprint("limiting total seeds to {}".format(tot_seeds))
 
-        flprint("limiting total seeds to {}".format(totSeeds))
+        seed_size = seed_points.shape[0]
 
-        seedSize = seed_points.shape[0]
-
-        if totSeeds > seedSize:
-            # need this because of determinisitc,
+        if tot_seeds > seed_size:
+            # need this because of deterministic,
             # if you pick the same seed, it will just
             # be the same fiber yo
-            totSeeds = seedSize
+            tot_seeds = seed_size
 
-        indicies = np.random.choice(range(seedSize),
-                                    size=totSeeds,
-                                    replace=True)
+        seed_inds = np.random.choice(range(seed_size),
+                                     size=tot_seeds,
+                                     replace=True)
 
-        new_seeds = [seed_points[i] for i in indicies]
+        new_seeds = [seed_points[i] for i in seed_inds]
         seed_points = np.asarray(new_seeds)
-
         flprint("new shape of seed points is : {}".format(seed_points.shape))
 
     # ~~~~~~~~~ saving / loading seed points? ~~~~~~~~~~~~~~~~~~~~~~
 
-    if cmdLine.saveSeedPoints_:
-
-        if cmdLine.randSeed_:
-            seedPointsNpz_name = ''.join([cmdLine.output_,
-                                          'rand_den',
-                                          str(cmdLine.seedDensity_),
-                                          '_seeds.npz'])
+    if command_line.saveSeedPoints_:
+        if command_line.randSeed_:
+            seed_points_npz_name = ''.join([command_line.output_,
+                                            'rand_den',
+                                            str(command_line.seedDensity_),
+                                            '_seeds.npz'])
         else:
-            seedPointsNpz_name = ''.join([cmdLine.output_,
-                                          'nonrand_den',
-                                          str(cmdLine.seedDensity_),
-                                          '_seeds.npz'])
+            seed_points_npz_name = ''.join([command_line.output_,
+                                            'nonrand_den',
+                                            str(command_line.seedDensity_),
+                                            '_seeds.npz'])
 
         # save mask array, also save the affine corresponding to this space
-        np.savez_compressed(seedPointsNpz_name,
+        np.savez_compressed(seed_points_npz_name,
                             seeds=seed_points,
-                            affine=maskImg.affine)
+                            affine=mask_img.affine)
 
     # echo to the user how many seeds there are
     flprint("Seed points with shape: {}\n".format(str(seed_points.shape)))
@@ -165,160 +149,136 @@ def main():
 
     classifier = None
 
-    if cmdLine.actClasses_:
-
-        classifier = act_classifier(cmdLine)
-
+    if command_line.actClasses_:
+        classifier = act_classifier(command_line)
     else:
+        fa_data, _ = make_fa_map(dwi_data, mask_data, grad_tab)
 
-        faData, _ = make_fa_map(dwiData, maskData, gtab)
-
-        from dipy.tracking.local import ThresholdTissueClassifier
-        classifier = ThresholdTissueClassifier(faData, float(cmdLine.faThr_))
+        from dipy.tracking.stopping_criterion import ThresholdStoppingCriterion
+        classifier = ThresholdStoppingCriterion(fa_data, float(command_line.faThr_))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ DIFFUSION / FIBER MODELS ~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    shcoeffs = None
-    peakDirections = None
+    sphere_harmonic_coeffs = None
+    peak_directions = None
 
     # must make this a bit if elif else statement
-    if cmdLine.tractModel_ == 'csd':
-
+    if command_line.tractModel_ == 'csd':
         flprint('using the csd model yo')
-
-        if not cmdLine.coeffFile_:
-
-            flprint("making the CSD ODF model wish sh of {}\n".format(cmdLine.shOrder_))
-
+        if not command_line.coeffFile_:
+            flprint("making the CSD ODF model wish sh of {}\n".format(command_line.shOrder_))
             from dipy.reconst.csdeconv import (ConstrainedSphericalDeconvModel,
                                                auto_response)
 
             # get the response yo.
-            response, ratio = auto_response(gtab, dwiData, roi_radius=10, fa_thr=cmdLine.faThr_)
-
+            response, ratio = auto_response(grad_tab, dwi_data, roi_radius=10, fa_thr=command_line.faThr_)
             flprint("the response for the csd is:\n{0}\nwith a ratio of:\n{1}\n".format(response, ratio))
-
-            csd_model = ConstrainedSphericalDeconvModel(gtab, response, sh_order=int(cmdLine.shOrder_))
-
+            csd_model = ConstrainedSphericalDeconvModel(grad_tab, response, sh_order=int(command_line.shOrder_))
             flprint("making the CSD fit yo")
-
-            csd_fit = csd_model.fit(dwiData, mask=maskData)
-            shcoeffs = csd_fit.shm_coeff
+            csd_fit = csd_model.fit(dwi_data, mask=mask_data)
+            sphere_harmonic_coeffs = csd_fit.shm_coeff
 
         else:  # i.e. we already have generated the coeffs
-
-            flprint("loading coeffs from file: {}".format(str(cmdLine.coeffFile_)))
+            flprint("loading coeffs from file: {}".format(str(command_line.coeffFile_)))
 
             # the new format yo
-            coeffsFile = h5py.File(cmdLine.coeffFile_, 'r')
-            shcoeffs = np.array(coeffsFile['PAM/coeff'])
+            coeffs_file = h5py.File(command_line.coeffFile_, 'r')
+            sphere_harmonic_coeffs = np.array(coeffs_file['PAM/coeff'])
 
-    elif cmdLine.tractModel_ == 'csa':
-
+    elif command_line.tractModel_ == 'csa':
         flprint('using the csa model yo')
 
         from dipy.reconst.shm import CsaOdfModel
         from dipy.direction import peaks_from_model
 
-        flprint("generating csa model. the sh order is {}".format(cmdLine.shOrder_))
+        flprint("generating csa model. the sh order is {}".format(command_line.shOrder_))
 
-        csa_model = CsaOdfModel(gtab, sh_order=cmdLine.shOrder_)
+        csa_model = CsaOdfModel(grad_tab, sh_order=command_line.shOrder_)
         csa_peaks = peaks_from_model(model=csa_model,
-                                     data=dwiData,
-                                     sphere=sphereData,
+                                     data=dwi_data,
+                                     sphere=sphere_data,
                                      relative_peak_threshold=0.5,
                                      min_separation_angle=25,
-                                     mask=maskData,
+                                     mask=mask_data,
                                      return_sh=True,
                                      parallel=False)
 
-        shcoeffs = csa_peaks.shm_coeff
+        sphere_harmonic_coeffs = csa_peaks.shm_coeff
 
-    elif cmdLine.tractModel_ == 'sparse':
-
+    elif command_line.tractModel_ == 'sparse':
         # TODO gotta implement this one
         pass
-
     else:  # this is for DTI model yo.
-
         flprint('using the dti model yo')
+        tensor_model = TensorModel(grad_tab)
 
-        tensor_model = TensorModel(gtab)
+        if command_line.dirGttr_ != 'eudx':
 
-        if cmdLine.dirGttr_ != 'eudx':
-
-            from dipy.reconst.peaks import peaks_from_model
-            peakDirections = peaks_from_model(tensor_model,
-                                              data=dwiData.astype(np.float_),
-                                              sphere=sphereData,
-                                              relative_peak_threshold=0.5,
-                                              min_separation_angle=25,
-                                              mask=maskData,
-                                              parallel=False)
+            from dipy.direction import peaks_from_model
+            peak_directions = peaks_from_model(tensor_model,
+                                               data=dwi_data.astype(np.float_),
+                                               sphere=sphere_data,
+                                               relative_peak_threshold=0.5,
+                                               min_separation_angle=25,
+                                               mask=mask_data,
+                                               parallel=False)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ DIRECTION GETTR ~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    directionGetter = None
+    dir_getter = None
 
     flprint("generating the direction gettr\n")
 
-    if (cmdLine.tractModel_ == 'csa') or (cmdLine.tractModel_ == 'csd'):
-
-        if cmdLine.dirGttr_ == 'deterministic':
-
+    if (command_line.tractModel_ == 'csa') or (command_line.tractModel_ == 'csd'):
+        if command_line.dirGttr_ == 'deterministic':
             from dipy.direction import DeterministicMaximumDirectionGetter
-
             flprint("determinisitc direction gettr\n")
-            directionGetter = DeterministicMaximumDirectionGetter.from_shcoeff(shcoeffs,
-                                                                               max_angle=np.float(cmdLine.maxAngle_),
-                                                                               sphere=sphereData)
-        elif cmdLine.dirGttr_ == 'probabilistic':
-
+            dir_getter = DeterministicMaximumDirectionGetter.from_shcoeff(sphere_harmonic_coeffs,
+                                                                          max_angle=np.float(command_line.maxAngle_),
+                                                                          sphere=sphere_data)
+        elif command_line.dirGttr_ == 'probabilistic':
             from dipy.direction import ProbabilisticDirectionGetter
-
             flprint("prob direction gettr\n")
-            directionGetter = ProbabilisticDirectionGetter.from_shcoeff(shcoeffs,
-                                                                        max_angle=np.float(cmdLine.maxAngle_),
-                                                                        sphere=sphereData)
-
+            dir_getter = ProbabilisticDirectionGetter.from_shcoeff(sphere_harmonic_coeffs,
+                                                                   max_angle=np.float(command_line.maxAngle_),
+                                                                   sphere=sphere_data)
+        # elif command_line.dirGttr_ == 'eudx':
+        #    from dipy.reconst.peak_direction_getter import EuDXDirectionGetter
+        #    flprint("prob direction gettr\n")
+        #    dir_getter = EuDXDirectionGetter.from_shcoeff(sphere_harmonic_coeffs,
+        #                                                  max_angle=np.float(command_line.maxAngle_),
+        #                                                  sphere=sphere_data)
         else:
-
             # dti tracking must be deterministic
-
             from dipy.direction import DeterministicMaximumDirectionGetter
 
             flprint("you forgot to to specify a dir gtter, so we will use determinisitc direction gettr\n")
-            directionGetter = DeterministicMaximumDirectionGetter.from_shcoeff(shcoeffs,
-                                                                               max_angle=np.float(cmdLine.maxAngle_),
-                                                                               sphere=sphereData)
-
+            dir_getter = DeterministicMaximumDirectionGetter.from_shcoeff(sphere_harmonic_coeffs,
+                                                                          max_angle=np.float(command_line.maxAngle_),
+                                                                          sphere=sphere_data)
     else:
         # dont need a deter or prob dir getter
-
-        directionGetter = peakDirections
+        dir_getter = peak_directions
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ STREAMLINES ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     streamlines = None
-
     flprint("making streamlines yo\n")
 
-    if cmdLine.dirGttr_ != 'eudx':
-
-        from dipy.tracking.local import LocalTracking
-
-        streamline_generator = LocalTracking(directionGetter,
+    if command_line.dirGttr_ != 'eudx':
+        from dipy.tracking.local_tracking import LocalTracking
+        streamline_generator = LocalTracking(dir_getter,
                                              classifier,
                                              seed_points,
-                                             maskImg.affine,
-                                             step_size=np.float(cmdLine.stepSize_),
-                                             max_cross=cmdLine.maxCross_,
+                                             mask_img.affine,
+                                             step_size=np.float(command_line.stepSize_),
+                                             max_cross=command_line.maxCross_,
                                              return_all=False)
 
         start_time = time.time()
@@ -328,7 +288,7 @@ def main():
 
         # this is the length function that acts on lists
         from dipy.tracking.metrics import length
-        streamlines = [s for s in streamlines if length(s) > np.float(cmdLine.lenThresh_)]
+        streamlines = [s for s in streamlines if length(s) > np.float(command_line.lenThresh_)]
 
         end_time = time.time()
 
@@ -338,9 +298,7 @@ def main():
         streamlines = Streamlines(streamlines)
 
         flprint("initially generated {} streamlines".format(str(len(streamlines))))
-
     else:
-
         flprint("this script no longer supports eudx")
         exit(1)
 
@@ -348,142 +306,144 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~ cluster con ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    if cmdLine.runCCI_ > 0:
+    if command_line.runCCI_ > 0:
+        num_cci_repetitions = 3
+        cci_iter_results = np.zeros([len(streamlines), num_cci_repetitions])
 
-        numcciReps = 3
-        cciIterResults = np.zeros([len(streamlines), numcciReps])
-
-        for i in range(numcciReps):
-            cciIterResults[:, i] = cluster_conf_endp(streamlines, kregions=50, chunksize=1000)
+        for i in range(num_cci_repetitions):
+            cci_iter_results[:, i] = cluster_conf_endp(streamlines, kregions=50, chunksize=1000)
 
         # mean because we using the clustering on endpoints
-        cci = np.nanmean(cciIterResults, axis=1)
+        cci = np.nanmean(cci_iter_results, axis=1)
 
-        ccistreamlines = Streamlines()
-        numRemoved = 0
+        cci_streamlines = Streamlines()
+        num_removed = 0
 
         start_time = time.time()
 
         for i, sl in enumerate(streamlines):
-            if cci[i] >= np.float(cmdLine.runCCI_):
-                ccistreamlines.append(sl, cache_build=True)
+            if cci[i] >= np.float(command_line.runCCI_):
+                cci_streamlines.append(sl, cache_build=True)
             else:
-                numRemoved += 1
+                num_removed += 1
 
         # finalize the append
-        ccistreamlines.finalize_append()
+        cci_streamlines.finalize_append()
 
-        flprint("number of streamlines removed with cci: {}".format(str(numRemoved)))
+        flprint("number of streamlines removed with cci: {}".format(str(num_removed)))
 
         end_time = time.time()
 
         flprint("time to create new streams: {}".format(str(timedelta(seconds=end_time - start_time))))
 
         # old_stream = streamlines
-        streamlines = ccistreamlines
+        streamlines = cci_streamlines
 
-        cciResults_name = ''.join([cmdLine.output_, 'cciresults.npz'])
+        cci_results_name = ''.join([command_line.output_, 'cciresults.npz'])
 
         # save mask array, also save the affine corresponding to this space
-        np.savez_compressed(cciResults_name, cciIterResults)
+        np.savez_compressed(cci_results_name, cci_iter_results)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ TRK IO.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    # TODO incorporate new streamline io
-
     tracks_outputname = None
 
-    if (cmdLine.tractModel_ == 'csa') or (cmdLine.tractModel_ == 'csd'):
-
-        tracks_outputname = ''.join([cmdLine.output_,
-                                     cmdLine.dirGttr_,
+    if (command_line.tractModel_ == 'csa') or (command_line.tractModel_ == 'csd'):
+        tracks_outputname = ''.join([command_line.output_,
+                                     command_line.dirGttr_,
                                      '_',
-                                     cmdLine.tractModel_,
+                                     command_line.tractModel_,
                                      '_sh',
-                                     str(cmdLine.shOrder_),
+                                     str(command_line.shOrder_),
                                      '.trk'])
-
     else:
-        tracks_outputname = ''.join([cmdLine.output_,
-                                     cmdLine.dirGttr_,
+        tracks_outputname = ''.join([command_line.output_,
+                                     command_line.dirGttr_,
                                      '_',
-                                     cmdLine.tractModel_,
+                                     command_line.tractModel_,
                                      '.trk'])
 
     flprint("reducing the streamline size")
     start_time = time.time()
 
     from dipy.tracking.distances import approx_polygon_track
-    outstreams = Streamlines([approx_polygon_track(s, 0.2) for s in streamlines])
+    output_streamlines = Streamlines([approx_polygon_track(s, 0.2) for s in streamlines])
 
     end_time = time.time()
     flprint("time to downsample streams: {}".format(str(timedelta(seconds=end_time - start_time))))
 
     # old usage
-    from dipy.io.trackvis import save_trk
-    save_trk(tracks_outputname, outstreams, maskImg.affine, maskData.shape)
+    # from dipy.io.trackvis import save_trk
+    # save_trk(tracks_outputname, output_streamlines, mask_img.affine, mask_data.shape)
+
+    from dipy.io.stateful_tractogram import Space, StatefulTractogram
+    from dipy.io.streamline import save_trk
+
+    sft = StatefulTractogram(streamlines, mask_img, Space.RASMM.name)
+    save_trk(sft, tracks_outputname, output_streamlines)
+
     flprint('The output tracks name is: {}'.format(tracks_outputname))
 
     # from dipy.io.streamline import save_trk
-    # save_trk(tracks_outputname, streamlines, maskImg.affine,
-    #         header=maskImg.header,
-    #         vox_size=maskImg.header.get_zooms(),
-    #         shape=maskImg.shape)
+    # save_trk(tracks_outputname, streamlines, mask_img.affine,
+    #         header=mask_img.header,
+    #         vox_size=mask_img.header.get_zooms(),
+    #         shape=mask_img.shape)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ CONNECTIVITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     # the number of streamlines, we will use later to normalize
-    numStreams = len(streamlines)
-    flprint('THE NUMBER OF STREAMS IS {0}'.format(numStreams))
+    num_streams = len(streamlines)
+    flprint('THE NUMBER OF STREAMS IS {0}'.format(num_streams))
 
-    if cmdLine.parcImgs_:
+    if command_line.parcImgs_:
 
         flprint("fitting the fa map for conn mat cal")
-        _, tenfit = make_fa_map(dwiData, maskData, gtab)
+        _, tensor_fit = make_fa_map(dwi_data, mask_data, grad_tab)
 
-        for i in range(len(cmdLine.parcImgs_)):
+        for i in range(len(command_line.parcImgs_)):
 
             start_time = time.time()
 
-            flprint('\n\nnow making the connectivity matrices for: {}'.format(str(cmdLine.parcImgs_[i])))
+            flprint('\n\nnow making the connectivity matrices for: {}'.format(str(command_line.parcImgs_[i])))
 
-            fsSegs_img = nib.load(cmdLine.parcImgs_[i])
-            fsSegs_data = fsSegs_img.get_data().astype(np.int16)
+            parcellation_img = nib.load(command_line.parcImgs_[i])
+            parcellation_data = parcellation_img.get_data().astype(np.int16)
 
             # lets get the name of the seg to use
             # in the output writing
-            segBaseName = ntpath.basename(
-              ntpath.splitext(ntpath.splitext(cmdLine.parcImgs_[i])[0])[0])
+            seg_base_name = ntpath.basename(
+              ntpath.splitext(ntpath.splitext(command_line.parcImgs_[i])[0])[0])
             # basename of all the outputs
-            conmatBasename = ''.join([cmdLine.output_, segBaseName, '_'])
+            conmat_basename = ''.join([command_line.output_, seg_base_name, '_'])
 
             from dipy.tracking.utils import connectivity_matrix
-            M, grouping = connectivity_matrix(streamlines, fsSegs_data,
+            m, grouping = connectivity_matrix(streamlines, mask_img.affine,
+                                              parcellation_data,
                                               symmetric=True,
-                                              affine=maskImg.affine,
                                               return_mapping=True,
                                               mapping_as_streamlines=True)
 
             # get rid of the first row because these are connections to '0'
-            M[:1, :] = 0
-            M[:, :1] = 0
+            m[:1, :] = 0
+            m[:, :1] = 0
 
             # use the default np.eye affine here... to not apply affine twice
-            fib_lengths = mat_stream_lengths(M, grouping)
-            mean_fa, _ = mat_indicies_along_streams(M, grouping, tenfit.fa,
-                                                    aff=maskImg.affine, stdstreamlen=20)
-            mean_md, _ = mat_indicies_along_streams(M, grouping, tenfit.md,
-                                                    aff=maskImg.affine, stdstreamlen=20)
+            fib_lengths = mat_stream_lengths(m, grouping)
+            mean_fa, _ = mat_indicies_along_streams(m, grouping, tensor_fit.fa,
+                                                    aff=mask_img.affine, stdstreamlen=20)
+            mean_md, _ = mat_indicies_along_streams(m, grouping, tensor_fit.md,
+                                                    aff=mask_img.affine, stdstreamlen=20)
 
             # save the files
-            ex_csv(''.join([conmatBasename, 'slcounts.csv']), M)
-            ex_csv(''.join([conmatBasename, 'lengths.csv']), fib_lengths)
-            ex_csv(''.join([conmatBasename, 'meanfa.csv']), mean_fa)
-            ex_csv(''.join([conmatBasename, 'meanmd.csv']), mean_md)
+            ex_csv(''.join([conmat_basename, 'slcounts.csv']), m)
+            ex_csv(''.join([conmat_basename, 'lengths.csv']), fib_lengths)
+            ex_csv(''.join([conmat_basename, 'meanfa.csv']), mean_fa)
+            ex_csv(''.join([conmat_basename, 'meanmd.csv']), mean_md)
 
             end_time = time.time()
 
@@ -493,17 +453,17 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~ DENSITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    density_outputname = ''.join([cmdLine.output_, cmdLine.dirGttr_,
-                                  '_', cmdLine.tractModel_,
-                                  '_density.nii.gz'])
+    density_output_name = ''.join([command_line.output_, command_line.dirGttr_,
+                                  '_', command_line.tractModel_,
+                                   '_density.nii.gz'])
 
-    densImg = make_density_img(streamlines, maskImg, 1)
-    nib.save(densImg, density_outputname)
+    density_img = make_density_img(streamlines, mask_img, 1)
+    nib.save(density_img, density_output_name)
 
 
 def mat_stream_lengths(mat, group, aff=np.eye(4)):
 
-    retmat = np.zeros(mat.shape, dtype=np.float)
+    length_mat = np.zeros(mat.shape, dtype=np.float)
 
     # by row
     for x in range(mat.shape[0]):
@@ -515,19 +475,19 @@ def mat_stream_lengths(mat, group, aff=np.eye(4)):
                 from dipy.tracking.utils import length
 
                 # now we record these values
-                stream_group_len = length(group[x, y], affine=aff)
-                retmat[x, y] = np.around(np.nanmean(list(stream_group_len)), 2)
+                stream_group_len = length(group[x, y])
+                length_mat[x, y] = np.around(np.nanmean(list(stream_group_len)), 2)
 
-    return retmat
+    return length_mat
 
 
 def mat_indicies_along_streams(mat, group, infovol, aff=np.eye(4), stdstreamlen=50):
 
-    meanretmat = np.zeros(mat.shape, dtype=np.float)
-    medianretmat = np.zeros(mat.shape, dtype=np.float)
+    mean_retmat = np.zeros(mat.shape, dtype=np.float)
+    median_retmat = np.zeros(mat.shape, dtype=np.float)
 
     # will trim the lower %5 and top %5 of streamline
-    trimlen = np.int(np.floor(stdstreamlen / 20))
+    trim_length = np.int(np.floor(stdstreamlen / 20))
 
     # by row
     for x in range(mat.shape[0]):
@@ -546,13 +506,13 @@ def mat_indicies_along_streams(mat, group, infovol, aff=np.eye(4), stdstreamlen=
 
                 vals = np.zeros(len(stream_vals))
                 for ind, sv in enumerate(stream_vals):
-                    vals[ind] = np.mean(sv[trimlen:-trimlen])
+                    vals[ind] = np.mean(sv[trim_length:-trim_length])
 
                 # flprint(str(np.mean(vals)))
-                meanretmat[x, y] = np.around(np.mean(vals), 6)
-                medianretmat[x, y] = np.around(np.median(vals), 6)
+                mean_retmat[x, y] = np.around(np.mean(vals), 6)
+                median_retmat[x, y] = np.around(np.median(vals), 6)
 
-    return meanretmat, medianretmat
+    return mean_retmat, median_retmat
 
 
 def make_density_img(streams, maskimg, resmultiply):
@@ -567,34 +527,30 @@ def make_density_img(streams, maskimg, resmultiply):
     new_affine[1, 1] = new_affine[1, 1] * 1/resmultiply
     new_affine[2, 2] = new_affine[2, 2] * 1/resmultiply
 
-    densityData = density_map(streams,
-                              vol_dims=(np.multiply(maskimg.shape, resmultiply)),
-                              affine=new_affine)
+    density_data = density_map(streams,
+                               vol_dims=(np.multiply(maskimg.shape, resmultiply)),
+                               affine=new_affine)
 
-    return nib.Nifti1Image(densityData, new_affine)
+    return nib.Nifti1Image(density_data, new_affine)
+
 
 def make_fa_map(dwidata, maskdata, gtabdata):
 
     tensor_model = TensorModel(gtabdata)
-
-    tenfit = tensor_model.fit(dwidata, mask=maskdata)
-    fadata = fractional_anisotropy(tenfit.evals)
-
+    tensort_fit = tensor_model.fit(dwidata, mask=maskdata)
+    fa_data = fractional_anisotropy(tensort_fit.evals)
     # just saving the FA image yo
-    fadata[np.isnan(fadata)] = 0
-
+    fa_data[np.isnan(fa_data)] = 0
     # also we can clip values outside of 0 and 1
-    fadata = np.clip(fadata, 0, 1)
+    fa_data = np.clip(fa_data, 0, 1)
 
-    return fadata, tenfit
+    return fa_data, tensort_fit
 
 
 def act_classifier(cmdlineobj):
 
-    from dipy.tracking.local import ActTissueClassifier
-
+    from dipy.tracking.stopping_criterion import ActStoppingCriterion
     flprint("making the classifier from your segs yo\n")
-
     # csf, gm, wm
     csfImage = nib.load(cmdlineobj.actClasses_[0])
     csfData = csfImage.get_data()
@@ -602,129 +558,116 @@ def act_classifier(cmdlineobj):
     gmData = gmImage.get_data()
     wmImage = nib.load(cmdlineobj.actClasses_[2])
     wmData = wmImage.get_data()
-
     # make a background
     background = np.ones(csfImage.shape)
     background[(gmData + wmData + csfData) > 0] = 0
-
     include_map = gmData
     include_map[background > 0] = 1
-
     exclude_map = csfData
 
-    return ActTissueClassifier(include_map, exclude_map)
+    return ActStoppingCriterion(include_map, exclude_map)
+
 
 def cluster_conf_endp(inputstreams, kregions=100, chunksize=5000):
     # function to run cci based on clusters of endpoints
 
     start_time = time.time()
 
-    endp1 = [sl[0] for sl in inputstreams]
-    endp2 = [sl[-1] for sl in inputstreams]
+    end_p1 = [sl[0] for sl in inputstreams]
+    end_p2 = [sl[-1] for sl in inputstreams]
 
     from sklearn.cluster import MiniBatchKMeans
-    miniB1 = MiniBatchKMeans(n_clusters=kregions, max_iter=10)
-    miniB2 = MiniBatchKMeans(n_clusters=kregions, max_iter=10)
-    lab1 = miniB1.fit_predict(endp1)
-    lab2 = miniB2.fit_predict(endp2)
+    mini_b1 = MiniBatchKMeans(n_clusters=kregions, max_iter=10)
+    mini_b2 = MiniBatchKMeans(n_clusters=kregions, max_iter=10)
+    lab1 = mini_b1.fit_predict(end_p1)
+    lab2 = mini_b2.fit_predict(end_p2)
 
-    cciRes = np.zeros([len(inputstreams), 2])
+    cci_res = np.zeros([len(inputstreams), 2])
 
     from itertools import compress
 
     # loop through each lab
-    for labval in range(kregions):
+    for lab_val in range(kregions):
 
-        flprint("\n\ncci region: {} of {}\n".format(str(labval + 1), str(kregions)))
-
-        tmpstreams = Streamlines(compress(inputstreams, lab1 == labval))
-        cciRes[lab1 == labval, 0] = cci_chunk(tmpstreams, ccichunksize=chunksize, ccisubsamp=8)
-
-        tmpstreams = Streamlines(compress(inputstreams, lab2 == labval))
-        cciRes[lab2 == labval, 1] = cci_chunk(tmpstreams, ccichunksize=chunksize, ccisubsamp=8)
+        flprint("\n\ncci region: {} of {}\n".format(str(lab_val + 1), str(kregions)))
+        tmp_streams = Streamlines(compress(inputstreams, lab1 == lab_val))
+        cci_res[lab1 == lab_val, 0] = cci_chunk(tmp_streams, ccichunksize=chunksize, ccisubsamp=8)
+        tmp_streams = Streamlines(compress(inputstreams, lab2 == lab_val))
+        cci_res[lab2 == lab_val, 1] = cci_chunk(tmp_streams, ccichunksize=chunksize, ccisubsamp=8)
 
     end_time = time.time()
-
     flprint("finished cci, took {}".format(str(timedelta(seconds=end_time - start_time))))
 
-    return np.nanmax(cciRes, axis=1)
+    return np.nanmax(cci_res, axis=1)
+
 
 def cci_chunk(inputstreams, ccichunksize=5000, ccisubsamp=12):
 
     from dipy.tracking.streamline import cluster_confidence
-
     flprint("running the cci iterative with subsamp: {}".format(str(ccisubsamp)))
-
     # need to breakup streamlines into manageable chunks
-    totalStreams = len(inputstreams)
+    total_streams = len(inputstreams)
 
-    if totalStreams < ccichunksize:
+    if total_streams < ccichunksize:
         # you can just run it normally
-
         start_time = time.time()
-
         try:
-            cciResults = cluster_confidence(inputstreams,
-                                            subsample=ccisubsamp,
-                                            max_mdf=5,
-                                            override=True)
+            cci_results = cluster_confidence(inputstreams,
+                                             subsample=ccisubsamp,
+                                             max_mdf=5,
+                                             override=True)
         except ValueError:
             print("caught rare value error")
-            nanvals = np.empty(len(inputstreams))
-            nanvals.fill(np.nan)
-            cciResults = nanvals
+            nan_vals = np.empty(len(inputstreams))
+            nan_vals.fill(np.nan)
+            cci_results = nan_vals
 
         end_time = time.time()
-
     else:
 
-        randInd = list(range(totalStreams))
+        random_inds = list(range(total_streams))
         # shuffle the indices in place
-        np.random.shuffle(randInd)
+        np.random.shuffle(random_inds)
 
-        streamChunkInd = chunker(randInd, ccichunksize, fudgefactor=np.floor(ccichunksize / 5))
+        stream_chunk_ind = chunker(random_inds, ccichunksize, fudgefactor=np.floor(ccichunksize / 5))
 
         # allocate the array
-        cciResults = np.zeros(totalStreams)
-
+        cci_results = np.zeros(total_streams)
         start_time = time.time()
 
-        for i in range(len(streamChunkInd)):
-
+        for i in range(len(stream_chunk_ind)):
             flprint("cci iter: {} of {} with size {}".format(str(i+1),
-                                                             str(len(streamChunkInd)),
-                                                             len(streamChunkInd[i])))
-
+                                                             str(len(stream_chunk_ind)),
+                                                             len(stream_chunk_ind[i])))
             try:
-                cciResults[streamChunkInd[i]] = cluster_confidence(inputstreams[streamChunkInd[i]],
-                                                                   subsample=ccisubsamp,
-                                                                   max_mdf=5,
-                                                                   override=True)
-
+                cci_results[stream_chunk_ind[i]] = cluster_confidence(inputstreams[stream_chunk_ind[i]],
+                                                                      subsample=ccisubsamp,
+                                                                      max_mdf=5,
+                                                                      override=True)
             except ValueError:
                 print("caught rare value error")
-                nanvals = np.empty(len(inputstreams[streamChunkInd[i]]))
-                nanvals.fill(np.nan)
-                cciResults[streamChunkInd[i]] = nanvals
+                nan_vals = np.empty(len(inputstreams[stream_chunk_ind[i]]))
+                nan_vals.fill(np.nan)
+                cci_results[stream_chunk_ind[i]] = nan_vals
 
         end_time = time.time()
 
     flprint("finished cci chunk, took {}".format(str(timedelta(seconds=end_time - start_time))))
-
-    return cciResults
+    return cci_results
 
 
 def chunker(seq, size, fudgefactor=10):
     # https://stackoverflow.com/questions/434287/what-is-the-most-pythonic-way-to-iterate-over-a-list-in-chunks
-    chunksList = list((seq[pos:pos + size] for pos in range(0, len(seq), size)))
+    chunks_list = list((seq[pos:pos + size] for pos in range(0, len(seq), size)))
 
     # handle some fudge
-    if len(chunksList[-1]) <= fudgefactor:
+    if len(chunks_list[-1]) <= fudgefactor:
         flprint("fudging the chunk size")
-        chunksList[-2] = chunksList[-2] + chunksList[-1]
-        del chunksList[-1]
+        chunks_list[-2] = chunks_list[-2] + chunks_list[-1]
+        del chunks_list[-1]
 
-    return chunksList
+    return chunks_list
+
 
 def ex_csv(filename, data):
     with open(filename, "w") as f:

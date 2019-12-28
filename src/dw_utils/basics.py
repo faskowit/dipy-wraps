@@ -7,9 +7,11 @@ import numpy as np
 from dipy.io import read_bvals_bvecs
 from dipy.core.gradients import gradient_table
 
+
 def flprint(instr):
     print(str(instr))
     sys.stdout.flush()
+
 
 def isfloat(value):
     try:
@@ -18,6 +20,7 @@ def isfloat(value):
     except ValueError:
         return False
 
+
 def isint(value):
     try:
         int(value)
@@ -25,38 +28,49 @@ def isint(value):
     except ValueError:
         return False
 
+
 def checkisfile(fname):
     if not os.path.isfile(fname):
         print('files does not exist: {}\nexiting'.format(fname))
         exit(1)
 
+
 def loaddwibasics(dwipath, maskpath, bvalpath, bvecpath):
 
     # convert the strings into images we can do stuff with in dipy yo!
-    dwiImage = nib.load(dwipath)
-    maskImage = nib.load(maskpath)
+    if dwipath:
+        checkisfile(dwipath)
+        dwi_image = nib.load(dwipath)
+    else:
+        dwi_image = None
+    if maskpath:
+        checkisfile(maskpath)
+        mask_image = nib.load(maskpath)
+    else:
+        mask_image = None
 
     # ~~~~~~~~~~ Bvals and Bvecs stuff ~~~~~~~~~~~~~~~
 
-    # read the bvals and bvecs into data artictecture that dipy understands
-    bvalData, bvecData = read_bvals_bvecs(bvalpath, bvecpath)
+    # read the bvals and bvecs into data architecture that dipy understands
+    bval_data, bvec_data = read_bvals_bvecs(bvalpath, bvecpath)
 
-    if not is_normalized_bvecs(bvecData):
+    if not is_normalized_bvecs(bvec_data):
         print("not normalized bvecs")
         exit(1)
 
     # need to create the gradient table yo
-    gtab = gradient_table(bvalData, bvecData, b0_threshold=25)
+    gtab = gradient_table(bval_data, bvec_data, b0_threshold=25)
 
     # show user
-    flprint('Nifti shape:{}\n'.format(dwiImage.shape))
-    flprint('\nBVALS look like this:{}\n'.format(bvalData))
-    flprint('\nBVECS look like this:{}\n'.format(bvecData))
+    if dwipath:
+        flprint('Nifti shape:{}\n'.format(dwi_image.shape))
+    flprint('\nBVALS look like this:{}\n'.format(bval_data))
+    flprint('\nBVECS look like this:{}\n'.format(bvec_data))
 
-    return dwiImage, maskImage, gtab
+    return dwi_image, mask_image, gtab
+
 
 def is_normalized_bvecs(bvecs):
     # https://github.com/BIG-S2/PSC/blob/master/Scilpy/scilpy/utils/bvec_bval_tools.py
-
     bvecs_norm = np.linalg.norm(bvecs, axis=1)
     return np.all(np.logical_or(np.abs(bvecs_norm - 1) < 1e-3, bvecs_norm == 0))
