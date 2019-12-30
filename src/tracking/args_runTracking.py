@@ -77,7 +77,7 @@ class CmdLineRunTracking(CmdLineHandler):
         # tissue classifier stuff
 
         self.parser.add_argument('-act_imgs', nargs=3,
-                                 help="limit total seeds to this number")
+                                 help="tissue classifier images")
 
         self.parser.add_argument('-fa_thr', nargs='?',
                                  help="fa threshold to use")

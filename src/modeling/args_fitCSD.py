@@ -15,6 +15,7 @@ class CmdLineFitCSD(CmdLineHandler):
         self.shOrder_ = 6
         self.recurResp_ = False
         self.wmMask_ = ''
+        self.actClasses_ = ''
 
     def get_args(self):
 
@@ -33,6 +34,9 @@ class CmdLineFitCSD(CmdLineHandler):
 
         self.parser.add_argument('-wm_mask', nargs='?',
                                  help="white matter mask to use in response estimation")
+
+        self.parser.add_argument('-act_imgs', nargs=3,
+                                 help="tissue images for multi-shell fit, implies multitissue fit")
 
         # this is a builtin function to parse the arguments of the arg parse module
         args = self.parser.parse_args()
@@ -54,6 +58,8 @@ class CmdLineFitCSD(CmdLineHandler):
             self.recurResp_ = True
         if args.wm_mask:
             self.wmMask_ = args.wm_mask
+        if args.act_imgs:
+            self.actClasses_ = args.act_imgs
 
     def check_args(self):
 

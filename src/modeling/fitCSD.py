@@ -121,12 +121,48 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~ CSD FIT ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    csd_model = ConstrainedSphericalDeconvModel(gtab, response,
-                                                sh_order=cmdLine.shOrder_,
-                                                reg_sphere=regSphereObj)
+    if len(cmdLine.actClasses_) > 0:
+
+        # load images
+        csf_image = nib.load(cmdLine.actClasses_[0])
+        csf_data = csf_image.get_data()
+        gm_image = nib.load(cmdLine.actClasses_[1])
+        gm_data = gm_image.get_data()
+
+        # fit dti model
+        import dipy.reconst.dti as dti
+        tensor_model = dti.TensorModel(gtab)
+        flprint("fitting tensor to get MD")
+        tensor_fit = tensor_model.fit(dwiData)
+        flprint("finished fitting tensor")
+        md_data = tensor_fit.md
+
+        # get needed inds
+        inds_csf = np.where(csf_data > 0)
+        inds_gm = np.where(gm_data > 0)
+        selected_csf = np.zeros(md_data.shape, dtype='bool')
+        selected_gm = np.zeros(md_data.shape, dtype='bool')
+        selected_csf[inds_csf] = True
+        selected_gm[inds_gm] = True
+        csf_md = np.mean(md_data[selected_csf])
+        gm_md = np.mean(md_data[selected_gm])
+
+        from dipy.sims.voxel import multi_shell_fiber_response
+        response_mcsd = multi_shell_fiber_response(sh_order=cmdLine.shOrder_,
+                                                   bvals=gtab.bvals,
+                                                   evals=response[0],
+                                                   csf_md=np.float(csf_md),
+                                                   gm_md=np.float(gm_md))
+
+        from dipy.reconst.mcsd import MultiShellDeconvModel
+        csd_model = MultiShellDeconvModel(gtab, response_mcsd, reg_sphere=regSphereObj)
+
+    else:
+        csd_model = ConstrainedSphericalDeconvModel(gtab, response,
+                                                    sh_order=cmdLine.shOrder_,
+                                                    reg_sphere=regSphereObj)
 
     flprint("making peaks from model")
-
     csd_peaks = peaks_from_model(model=csd_model,
                                  data=dwiData,
                                  sphere=peaksSphereObj,
@@ -135,14 +171,11 @@ def main():
                                  mask=maskData.astype(np.bool),
                                  return_sh=True,
                                  normalize_peaks=True,
-                                 parallel=False,
-                                 nbr_processes=1)
-
+                                 parallel=False)
     flprint("done making peaks from model")
 
     # gather output
     fod_coeff = csd_peaks.shm_coeff.astype(np.float32)
-
     # add other elements of csd_peaks to npz file
     fod_gfa = csd_peaks.gfa
     fod_qa = csd_peaks.qa
@@ -151,7 +184,6 @@ def main():
     fod_peak_ind = csd_peaks.peak_indices
 
     flprint('writing to the file the coefficients for sh order of: {0}'.format(str(cmdLine.shOrder_)))
-
     # lets write this to the disk yo
     fullOutput = ''.join([outNameBase, '_csdPAM.h5'])
 
@@ -168,10 +200,8 @@ def main():
 
     # lets also write out a gfa image yo, just for fun
     gfaImg = nib.Nifti1Image(csd_peaks.gfa.astype(np.float32), dwiImg.get_affine())
-
     # make the output name yo
     gfaOutputName = ''.join([outNameBase, '_gfa.nii.gz'])
-
     # same this FA
     nib.save(gfaImg, gfaOutputName)
 

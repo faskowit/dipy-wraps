@@ -44,6 +44,7 @@ def main():
                                                 command_line.bvec_)
 
     # get the data from all the images yo
+    dwi_data = ''
     if dwi_img:
         dwi_data = dwi_img.get_data()
     mask_data = mask_img.get_data()
@@ -381,7 +382,7 @@ def main():
     from dipy.io.stateful_tractogram import Space, StatefulTractogram
     from dipy.io.streamline import save_trk
 
-    sft = StatefulTractogram(streamlines, mask_img, Space.RASMM.name)
+    sft = StatefulTractogram(streamlines, mask_img, Space.RASMM)
     save_trk(sft, tracks_outputname, output_streamlines)
 
     flprint('The output tracks name is: {}'.format(tracks_outputname))
@@ -434,10 +435,10 @@ def main():
 
             # use the default np.eye affine here... to not apply affine twice
             fib_lengths = mat_stream_lengths(m, grouping)
-            mean_fa, _ = mat_indicies_along_streams(m, grouping, tensor_fit.fa,
-                                                    aff=mask_img.affine, stdstreamlen=20)
-            mean_md, _ = mat_indicies_along_streams(m, grouping, tensor_fit.md,
-                                                    aff=mask_img.affine, stdstreamlen=20)
+            mean_fa, _ = mat_ind_along_streams(m, grouping, tensor_fit.fa,
+                                               aff=mask_img.affine, stdstreamlen=20)
+            mean_md, _ = mat_ind_along_streams(m, grouping, tensor_fit.md,
+                                               aff=mask_img.affine, stdstreamlen=20)
 
             # save the files
             ex_csv(''.join([conmat_basename, 'slcounts.csv']), m)
@@ -481,7 +482,7 @@ def mat_stream_lengths(mat, group, aff=np.eye(4)):
     return length_mat
 
 
-def mat_indicies_along_streams(mat, group, infovol, aff=np.eye(4), stdstreamlen=50):
+def mat_ind_along_streams(mat, group, infovol, aff=np.eye(4), stdstreamlen=50):
 
     mean_retmat = np.zeros(mat.shape, dtype=np.float)
     median_retmat = np.zeros(mat.shape, dtype=np.float)
@@ -497,7 +498,7 @@ def mat_indicies_along_streams(mat, group, infovol, aff=np.eye(4), stdstreamlen=
             # check if entry in dict, if so, do more stuff
             if (x, y) in group:
 
-                # first lets resample all streamlines to const length
+                # first lets re-sample all streamlines to const length
                 from dipy.tracking.streamlinespeed import set_number_of_points
                 stand_stream_group = set_number_of_points(group[x, y], stdstreamlen)
 
@@ -508,7 +509,6 @@ def mat_indicies_along_streams(mat, group, infovol, aff=np.eye(4), stdstreamlen=
                 for ind, sv in enumerate(stream_vals):
                     vals[ind] = np.mean(sv[trim_length:-trim_length])
 
-                # flprint(str(np.mean(vals)))
                 mean_retmat[x, y] = np.around(np.mean(vals), 6)
                 median_retmat[x, y] = np.around(np.median(vals), 6)
 
