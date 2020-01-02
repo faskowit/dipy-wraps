@@ -44,7 +44,7 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~ RESPONSES ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    outNameBase = ''.join([cmdLine.output_, '_recurRes_sh', str(cmdLine.shOrder_)])
+    outNameBase = ''.join([cmdLine.output_, '_response_sh', str(cmdLine.shOrder_)])
 
     if cmdLine.recurResp_ == 1:
 
