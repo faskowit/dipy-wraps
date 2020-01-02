@@ -280,7 +280,7 @@ def main():
         if command_line.chunkTrack_:
             flprint("low mem tracking will track in chunks")
             # chunk the seedpoints
-            seed_points_chun_sz = 100000
+            seed_points_chun_sz = 50000
             seed_points_chunked = chunker(seed_points, seed_points_chun_sz, 5000)
             # initialize streamlines
             streamlines = Streamlines()
@@ -298,8 +298,12 @@ def main():
                 chunk_streamlines = list(streamline_generator)
                 from dipy.tracking.metrics import length
                 chunk_streamlines = [s for s in chunk_streamlines if length(s) > np.float(command_line.lenThresh_)]
-
-                streamlines.append([approx_polygon_track(s, 0.15) for s in chunk_streamlines], cache_build=False)
+                chunk_streamlines = [approx_polygon_track(s, 0.2) for s in chunk_streamlines]
+                flprint("chunk generated {} streamlines".format(str(len(chunk_streamlines))))
+                for i, sl in enumerate(chunk_streamlines):
+                    streamlines.append(sl, cache_build=True)
+                flprint("appending this chunk")
+                streamlines.finalize_append()
         else:
             streamline_generator = LocalTracking(dir_getter,
                                                  classifier,

@@ -81,7 +81,6 @@ class CmdLineRunTracking(CmdLineHandler):
                                  help="maximum angle to use at each procession in streamline tracking")
         self.parser.add_argument('-cci', nargs='?', help="run cluster confidence index")
         # parcellation stuff
-        # freesurfer segs
         self.parser.add_argument('-segs', nargs='*', help="Parcellation in same space as dwi, can be multiple segs")
         # model fit stuff
         self.parser.add_argument('-sh_ord', nargs='?', type=int, choices=range(2, 14, 2),
