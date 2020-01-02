@@ -10,7 +10,7 @@ class CmdLineRunTracking(CmdLineHandler):
 
     def __init__(self, parserdesc):
 
-        # initalize the dwi essentials
+        # initialize the dwi essentials
         CmdLineHandler.__init__(self, parserdesc)
 
         # add application specific variables
@@ -45,6 +45,8 @@ class CmdLineRunTracking(CmdLineHandler):
         self.shOrder_ = 6
         self.coeffFile_ = ''
 
+        self.chunkTrack_ = False
+
     def get_args(self):
 
         # get the basics: dwi, bvals, bvecs, mask, output with object function
@@ -58,70 +60,36 @@ class CmdLineRunTracking(CmdLineHandler):
                                  help="white matter mask")
 
         # seeds stuff
-
-        self.parser.add_argument('-seed_den', nargs='?', type=int,
-                                 help="voxelwise seed density")
-
-        self.parser.add_argument('-seed_file', nargs='?',
-                                 help="seed points npz file")
-
-        self.parser.add_argument('-save_seeds', action='store_true',
-                                 help="save seed points to file")
-
-        self.parser.add_argument('-rand_seed', action='store_true',
-                                 help="voxelwise seed density")
-
-        self.parser.add_argument('-limit_seed_count', nargs='?',
-                                 help="limit total seeds to this number")
-
+        self.parser.add_argument('-seed_den', nargs='?', type=int, help="voxelwise seed density")
+        self.parser.add_argument('-seed_file', nargs='?', help="seed points npz file")
+        self.parser.add_argument('-save_seeds', action='store_true', help="save seed points to file")
+        self.parser.add_argument('-rand_seed', action='store_true', help="voxelwise seed density")
+        self.parser.add_argument('-limit_seed_count', nargs='?', help="limit total seeds to this number")
         # tissue classifier stuff
-
-        self.parser.add_argument('-act_imgs', nargs=3,
-                                 help="tissue classifier images")
-
-        self.parser.add_argument('-fa_thr', nargs='?',
-                                 help="fa threshold to use")
-
+        self.parser.add_argument('-act_imgs', nargs=3, help="tissue classifier images")
+        self.parser.add_argument('-fa_thr', nargs='?', help="fa threshold to use")
         # tracking stuff
-
-        self.parser.add_argument('-tract_model', nargs='?',
-                                 help="tracotraphy model you want to use: csa, csd, dti",
+        self.parser.add_argument('-tract_model', nargs='?', help="tracotraphy model you want to use: csa, csd, dti",
                                  choices=['csa', 'csd', 'dti'])
-
-        self.parser.add_argument('-dir_gttr', nargs='?',
-                                 help="direction getter to use when streamline tracking",
+        self.parser.add_argument('-dir_gttr', nargs='?', help="direction getter to use when streamline tracking",
                                  choices=['deterministic', 'probabilistic'])
-
         # streamline stuff
-
-        self.parser.add_argument('-step_size', nargs='?',
-                                 help="step size to proceed in streamline tracking")
-
-        self.parser.add_argument('-max_cross', nargs='?',
-                                 help="how many possible directions to start out from seed")
-
-        self.parser.add_argument('-len_thr', nargs='?',
-                                 help="streamline length threshold")
-
+        self.parser.add_argument('-step_size', nargs='?', help="step size to proceed in streamline tracking")
+        self.parser.add_argument('-max_cross', nargs='?', help="how many possible directions to start out from seed")
+        self.parser.add_argument('-len_thr', nargs='?', help="streamline length threshold")
         self.parser.add_argument('-max_angle', nargs='?',
                                  help="maximum angle to use at each procession in streamline tracking")
-
-        self.parser.add_argument('-cci', nargs='?',
-                                 help="run cluster confidence index")
-
+        self.parser.add_argument('-cci', nargs='?', help="run cluster confidence index")
         # parcellation stuff
-
         # freesurfer segs
-        self.parser.add_argument('-segs', nargs='*',
-                                 help="Parcellation in same space as dwi, can be multiple segs")
-
+        self.parser.add_argument('-segs', nargs='*', help="Parcellation in same space as dwi, can be multiple segs")
         # model fit stuff
-
         self.parser.add_argument('-sh_ord', nargs='?', type=int, choices=range(2, 14, 2),
                                  help="sh order of the model yo", )
-
-        self.parser.add_argument('-coeff_file', nargs='?',
-                                 help="sh coeff file, if coeffs are already fit")
+        self.parser.add_argument('-coeff_file', nargs='?', help="sh coeff file, if coeffs are already fit")
+        # runnit stuff
+        self.parser.add_argument('-chunk_track', action='store_true',
+                                 help="track in chunks, resampling streamlines to smaller size between each chunk")
 
         ################################################################################################################
 
@@ -179,6 +147,9 @@ class CmdLineRunTracking(CmdLineHandler):
             self.shOrder_ = np.int(args.sh_ord)
         if args.coeff_file:
             self.coeffFile_ = args.coeff_file
+
+        if args.chunk_track:
+            self.chunkTrack_ = True
 
     def check_args(self):
 

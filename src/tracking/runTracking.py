@@ -19,13 +19,14 @@ import time
 from datetime import timedelta
 # dipy wraps imports
 from src.tracking.args_runTracking import CmdLineRunTracking
-from src.dw_utils.basics import flprint, loaddwibasics
+from src.dw_utils.basics import flprint, loaddwibasics, chunker
 # dipy imports
 from dipy.segment.mask import applymask
 from dipy.data import get_sphere
 from dipy.reconst.dti import fractional_anisotropy, TensorModel
 from dipy.tracking.utils import random_seeds_from_mask, seeds_from_mask
 from dipy.tracking.streamline import Streamlines
+from dipy.tracking.distances import approx_polygon_track
 
 
 def main():
@@ -273,31 +274,51 @@ def main():
     flprint("making streamlines yo\n")
 
     if command_line.dirGttr_ != 'eudx':
-        from dipy.tracking.local_tracking import LocalTracking
-        streamline_generator = LocalTracking(dir_getter,
-                                             classifier,
-                                             seed_points,
-                                             mask_img.affine,
-                                             step_size=np.float(command_line.stepSize_),
-                                             max_cross=command_line.maxCross_,
-                                             return_all=False)
-
         start_time = time.time()
+        from dipy.tracking.local_tracking import LocalTracking
 
-        # Compute streamlines
-        streamlines = list(streamline_generator)
+        if command_line.chunkTrack_:
+            flprint("low mem tracking will track in chunks")
+            # chunk the seedpoints
+            seed_points_chun_sz = 100000
+            seed_points_chunked = chunker(seed_points, seed_points_chun_sz, 5000)
+            # initialize streamlines
+            streamlines = Streamlines()
+            # loop over seeds
+            for idx in range(len(seed_points_chunked)):
+                flprint("tracking chunk {} of {}".format(str(idx+1), str(len(seed_points_chunked))))
+                streamline_generator = LocalTracking(dir_getter,
+                                                     classifier,
+                                                     seed_points_chunked[idx],
+                                                     mask_img.affine,
+                                                     step_size=np.float(command_line.stepSize_),
+                                                     max_cross=command_line.maxCross_,
+                                                     return_all=False)
+                # Compute streamlines
+                chunk_streamlines = list(streamline_generator)
+                from dipy.tracking.metrics import length
+                chunk_streamlines = [s for s in chunk_streamlines if length(s) > np.float(command_line.lenThresh_)]
 
-        # this is the length function that acts on lists
-        from dipy.tracking.metrics import length
-        streamlines = [s for s in streamlines if length(s) > np.float(command_line.lenThresh_)]
+                streamlines.append([approx_polygon_track(s, 0.15) for s in chunk_streamlines], cache_build=False)
+        else:
+            streamline_generator = LocalTracking(dir_getter,
+                                                 classifier,
+                                                 seed_points,
+                                                 mask_img.affine,
+                                                 step_size=np.float(command_line.stepSize_),
+                                                 max_cross=command_line.maxCross_,
+                                                 return_all=False)
+            # Compute streamlines
+            streamlines = list(streamline_generator)
+
+            # this is the length function that acts on lists
+            from dipy.tracking.metrics import length
+            streamlines = [s for s in streamlines if length(s) > np.float(command_line.lenThresh_)]
+            # use the Streamlines type now
+            streamlines = Streamlines(streamlines)
 
         end_time = time.time()
-
         flprint("\nfinished generating streams, took {}".format(str(timedelta(seconds=end_time - start_time))))
-
-        # use the Streamlines type now
-        streamlines = Streamlines(streamlines)
-
         flprint("initially generated {} streamlines".format(str(len(streamlines))))
     else:
         flprint("this script no longer supports eudx")
@@ -308,41 +329,43 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     if command_line.runCCI_ > 0:
-        num_cci_repetitions = 3
-        cci_iter_results = np.zeros([len(streamlines), num_cci_repetitions])
 
-        for i in range(num_cci_repetitions):
-            cci_iter_results[:, i] = cluster_conf_endp(streamlines, kregions=50, chunksize=1000)
+        from src.tracking.clustConfidence import cluster_confidence_filter
+        cci_streamlines, cci_iter_results, num_removed = \
+            cluster_confidence_filter(streamlines, command_line.runCCI_, 50, 1000)
 
-        # mean because we using the clustering on endpoints
-        cci = np.nanmean(cci_iter_results, axis=1)
+        # num_cci_repetitions = 3
+        # cci_iter_results = np.zeros([len(streamlines), num_cci_repetitions])
+        #
+        # for i in range(num_cci_repetitions):
+        #     cci_iter_results[:, i] = cluster_conf_endp(streamlines, kregions=50, chunksize=1000)
+        #
+        # # mean because we using the clustering on endpoints
+        # cci = np.nanmean(cci_iter_results, axis=1)
+        #
+        # cci_streamlines = Streamlines()
+        # num_removed = 0
+        #
+        # start_time = time.time()
+        #
+        # for i, sl in enumerate(streamlines):
+        #     if cci[i] >= np.float(command_line.runCCI_):
+        #         cci_streamlines.append(sl, cache_build=True)
+        #     else:
+        #         num_removed += 1
+        #
+        # # finalize the append
+        # cci_streamlines.finalize_append()
+        #
+        # flprint("number of streamlines removed with cci: {}".format(str(num_removed)))
+        #
+        # end_time = time.time()
+        #
+        # flprint("time to create new streams: {}".format(str(timedelta(seconds=end_time - start_time))))
+        #
 
-        cci_streamlines = Streamlines()
-        num_removed = 0
-
-        start_time = time.time()
-
-        for i, sl in enumerate(streamlines):
-            if cci[i] >= np.float(command_line.runCCI_):
-                cci_streamlines.append(sl, cache_build=True)
-            else:
-                num_removed += 1
-
-        # finalize the append
-        cci_streamlines.finalize_append()
-
-        flprint("number of streamlines removed with cci: {}".format(str(num_removed)))
-
-        end_time = time.time()
-
-        flprint("time to create new streams: {}".format(str(timedelta(seconds=end_time - start_time))))
-
-        # old_stream = streamlines
         streamlines = cci_streamlines
-
         cci_results_name = ''.join([command_line.output_, 'cciresults.npz'])
-
-        # save mask array, also save the affine corresponding to this space
         np.savez_compressed(cci_results_name, cci_iter_results)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -369,7 +392,6 @@ def main():
     flprint("reducing the streamline size")
     start_time = time.time()
 
-    from dipy.tracking.distances import approx_polygon_track
     output_streamlines = Streamlines([approx_polygon_track(s, 0.2) for s in streamlines])
 
     end_time = time.time()
@@ -566,107 +588,6 @@ def act_classifier(cmdlineobj):
     exclude_map = csfData
 
     return ActStoppingCriterion(include_map, exclude_map)
-
-
-def cluster_conf_endp(inputstreams, kregions=100, chunksize=5000):
-    # function to run cci based on clusters of endpoints
-
-    start_time = time.time()
-
-    end_p1 = [sl[0] for sl in inputstreams]
-    end_p2 = [sl[-1] for sl in inputstreams]
-
-    from sklearn.cluster import MiniBatchKMeans
-    mini_b1 = MiniBatchKMeans(n_clusters=kregions, max_iter=10)
-    mini_b2 = MiniBatchKMeans(n_clusters=kregions, max_iter=10)
-    lab1 = mini_b1.fit_predict(end_p1)
-    lab2 = mini_b2.fit_predict(end_p2)
-
-    cci_res = np.zeros([len(inputstreams), 2])
-
-    from itertools import compress
-
-    # loop through each lab
-    for lab_val in range(kregions):
-
-        flprint("\n\ncci region: {} of {}\n".format(str(lab_val + 1), str(kregions)))
-        tmp_streams = Streamlines(compress(inputstreams, lab1 == lab_val))
-        cci_res[lab1 == lab_val, 0] = cci_chunk(tmp_streams, ccichunksize=chunksize, ccisubsamp=8)
-        tmp_streams = Streamlines(compress(inputstreams, lab2 == lab_val))
-        cci_res[lab2 == lab_val, 1] = cci_chunk(tmp_streams, ccichunksize=chunksize, ccisubsamp=8)
-
-    end_time = time.time()
-    flprint("finished cci, took {}".format(str(timedelta(seconds=end_time - start_time))))
-
-    return np.nanmax(cci_res, axis=1)
-
-
-def cci_chunk(inputstreams, ccichunksize=5000, ccisubsamp=12):
-
-    from dipy.tracking.streamline import cluster_confidence
-    flprint("running the cci iterative with subsamp: {}".format(str(ccisubsamp)))
-    # need to breakup streamlines into manageable chunks
-    total_streams = len(inputstreams)
-
-    if total_streams < ccichunksize:
-        # you can just run it normally
-        start_time = time.time()
-        try:
-            cci_results = cluster_confidence(inputstreams,
-                                             subsample=ccisubsamp,
-                                             max_mdf=5,
-                                             override=True)
-        except ValueError:
-            print("caught rare value error")
-            nan_vals = np.empty(len(inputstreams))
-            nan_vals.fill(np.nan)
-            cci_results = nan_vals
-
-        end_time = time.time()
-    else:
-
-        random_inds = list(range(total_streams))
-        # shuffle the indices in place
-        np.random.shuffle(random_inds)
-
-        stream_chunk_ind = chunker(random_inds, ccichunksize, fudgefactor=np.floor(ccichunksize / 5))
-
-        # allocate the array
-        cci_results = np.zeros(total_streams)
-        start_time = time.time()
-
-        for i in range(len(stream_chunk_ind)):
-            flprint("cci iter: {} of {} with size {}".format(str(i+1),
-                                                             str(len(stream_chunk_ind)),
-                                                             len(stream_chunk_ind[i])))
-            try:
-                cci_results[stream_chunk_ind[i]] = cluster_confidence(inputstreams[stream_chunk_ind[i]],
-                                                                      subsample=ccisubsamp,
-                                                                      max_mdf=5,
-                                                                      override=True)
-            except ValueError:
-                print("caught rare value error")
-                nan_vals = np.empty(len(inputstreams[stream_chunk_ind[i]]))
-                nan_vals.fill(np.nan)
-                cci_results[stream_chunk_ind[i]] = nan_vals
-
-        end_time = time.time()
-
-    flprint("finished cci chunk, took {}".format(str(timedelta(seconds=end_time - start_time))))
-    return cci_results
-
-
-def chunker(seq, size, fudgefactor=10):
-    # https://stackoverflow.com/questions/434287/what-is-the-most-pythonic-way-to-iterate-over-a-list-in-chunks
-    chunks_list = list((seq[pos:pos + size] for pos in range(0, len(seq), size)))
-
-    # handle some fudge
-    if len(chunks_list[-1]) <= fudgefactor:
-        flprint("fudging the chunk size")
-        chunks_list[-2] = chunks_list[-2] + chunks_list[-1]
-        del chunks_list[-1]
-
-    return chunks_list
 
 
 def ex_csv(filename, data):

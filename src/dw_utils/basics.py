@@ -36,6 +36,19 @@ def checkisfile(fname):
         exit(1)
 
 
+def chunker(seq, size, fudgefactor=10):
+    # https://stackoverflow.com/questions/434287/what-is-the-most-pythonic-way-to-iterate-over-a-list-in-chunks
+    chunks_list = list((seq[pos:pos + size] for pos in range(0, len(seq), size)))
+
+    # handle some fudge
+    if len(chunks_list[-1]) <= fudgefactor:
+        flprint("fudging the chunk size")
+        chunks_list[-2] = chunks_list[-2] + chunks_list[-1]
+        del chunks_list[-1]
+
+    return chunks_list
+
+
 def loaddwibasics(dwipath, maskpath, bvalpath, bvecpath):
 
     # convert the strings into images we can do stuff with in dipy yo!
