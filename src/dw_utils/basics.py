@@ -4,6 +4,7 @@ import os
 import sys
 import nibabel as nib
 import numpy as np
+import h5py
 from dipy.io import read_bvals_bvecs
 from dipy.core.gradients import gradient_table
 
@@ -74,3 +75,27 @@ def is_normalized_bvecs(bvecs):
     # https://github.com/BIG-S2/PSC/blob/master/Scilpy/scilpy/utils/bvec_bval_tools.py
     bvecs_norm = np.linalg.norm(bvecs, axis=1)
     return np.all(np.logical_or(np.abs(bvecs_norm - 1) < 1e-3, bvecs_norm == 0))
+
+
+def write_pam_h5py(peaks, out_base, sh_ord):
+
+    # gather output
+    fod_coeff = peaks.shm_coeff.astype(np.float32)
+    # add other elements of csd_peaks to npz file
+    fod_gfa = peaks.gfa
+    fod_qa = peaks.qa
+    fod_peak_dir = peaks.peak_dirs
+    fod_peak_val = peaks.peak_values
+    fod_peak_ind = peaks.peak_indices
+
+    flprint('writing to the file the coefficients for sh order of: {0}'.format(str(sh_ord)))
+    full_output = ''.join([out_base, '_csdPAM.h5'])
+
+    with h5py.File(full_output, 'w') as hf:
+        group1 = hf.create_group('PAM')
+        group1.create_dataset('coeff', data=fod_coeff, compression="gzip")
+        group1.create_dataset('gfa', data=fod_gfa, compression="gzip")
+        group1.create_dataset('qa', data=fod_qa, compression="gzip")
+        group1.create_dataset('peak_dir', data=fod_peak_dir, compression="gzip")
+        group1.create_dataset('peak_val', data=fod_peak_val, compression="gzip")
+        group1.create_dataset('peak_ind', data=fod_peak_ind, compression="gzip")
