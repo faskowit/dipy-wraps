@@ -429,8 +429,9 @@ def main():
 
     if command_line.parcImgs_:
 
-        flprint("fitting the fa map for conn mat cal")
-        _, tensor_fit = make_fa_map(dwi_data, mask_data, grad_tab)
+        if dwi_data:
+            flprint("fitting the fa map for conn mat cal")
+            _, tensor_fit = make_fa_map(dwi_data, mask_data, grad_tab)
 
         for i in range(len(command_line.parcImgs_)):
 
@@ -461,16 +462,19 @@ def main():
 
             # use the default np.eye affine here... to not apply affine twice
             fib_lengths = mat_stream_lengths(m, grouping)
-            mean_fa, _ = mat_ind_along_streams(m, grouping, tensor_fit.fa,
-                                               aff=mask_img.affine, stdstreamlen=20)
-            mean_md, _ = mat_ind_along_streams(m, grouping, tensor_fit.md,
-                                               aff=mask_img.affine, stdstreamlen=20)
+
+            if dwi_data:
+                mean_fa, _ = mat_ind_along_streams(m, grouping, tensor_fit.fa,
+                                                   aff=mask_img.affine, stdstreamlen=20)
+                mean_md, _ = mat_ind_along_streams(m, grouping, tensor_fit.md,
+                                                   aff=mask_img.affine, stdstreamlen=20)
 
             # save the files
             ex_csv(''.join([conmat_basename, 'slcounts.csv']), m)
             ex_csv(''.join([conmat_basename, 'lengths.csv']), fib_lengths)
-            ex_csv(''.join([conmat_basename, 'meanfa.csv']), mean_fa)
-            ex_csv(''.join([conmat_basename, 'meanmd.csv']), mean_md)
+            if dwi_data:
+                ex_csv(''.join([conmat_basename, 'meanfa.csv']), mean_fa)
+                ex_csv(''.join([conmat_basename, 'meanmd.csv']), mean_md)
 
             end_time = time.time()
 
