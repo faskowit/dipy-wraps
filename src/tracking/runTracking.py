@@ -47,8 +47,8 @@ def main():
     # get the data from all the images yo
     dwi_data = None
     if dwi_img:
-        dwi_data = dwi_img.get_data()
-    mask_data = mask_img.get_data()
+        dwi_data = dwi_img.get_fdata()
+    mask_data = mask_img.get_fdata()
     # mask the dwi_data
     if dwi_img:
         dwi_data = applymask(dwi_data, mask_data)
@@ -56,7 +56,7 @@ def main():
     if command_line.wmMask_:
         flprint("using wm mask provided")
         wm_mask_img = nib.load(command_line.wmMask_)
-        wm_mask_data = wm_mask_img.get_data()
+        wm_mask_data = wm_mask_img.get_fdata()
         flprint(wm_mask_img.shape)
 
     sphere_data = get_sphere('repulsion724')
@@ -442,7 +442,7 @@ def main():
             flprint('\n\nnow making the connectivity matrices for: {}'.format(str(command_line.parcImgs_[i])))
 
             parcellation_img = nib.load(command_line.parcImgs_[i])
-            parcellation_data = parcellation_img.get_data().astype(np.int16)
+            parcellation_data = parcellation_img.get_fdata().astype(np.int16)
 
             # lets get the name of the seg to use
             # in the output writing
@@ -585,11 +585,11 @@ def act_classifier(cmdlineobj):
     flprint("making the classifier from your segs yo\n")
     # csf, gm, wm
     csfImage = nib.load(cmdlineobj.actClasses_[0])
-    csfData = csfImage.get_data()
+    csfData = csfImage.get_fdata()
     gmImage = nib.load(cmdlineobj.actClasses_[1])
-    gmData = gmImage.get_data()
+    gmData = gmImage.get_fdata()
     wmImage = nib.load(cmdlineobj.actClasses_[2])
-    wmData = wmImage.get_data()
+    wmData = wmImage.get_fdata()
     # make a background
     background = np.ones(csfImage.shape)
     background[(gmData + wmData + csfData) > 0] = 0

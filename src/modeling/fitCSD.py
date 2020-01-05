@@ -32,8 +32,8 @@ def main():
                                                     command_line.bvec_)
 
     # get the data from all the images yo
-    dwi_data = dwi_img.get_data()
-    mask_data = mask_img.get_data()
+    dwi_data = dwi_img.get_fdata()
+    mask_data = mask_img.get_fdata()
 
     # mask the dwi_data
     dwi_data = applymask(dwi_data, mask_data)
@@ -68,7 +68,7 @@ def main():
                 flprint("using wm mask provided")
 
                 wm_mask_img = nib.load(command_line.wmMask_)
-                wm_mask_data = wm_mask_img.get_data()
+                wm_mask_data = wm_mask_img.get_fdata()
 
                 flprint(wm_mask_img.shape)
 
@@ -125,9 +125,9 @@ def main():
 
         # load images
         csf_image = nib.load(command_line.actClasses_[0])
-        csf_data = csf_image.get_data()
+        csf_data = csf_image.get_fdata()
         gm_image = nib.load(command_line.actClasses_[1])
-        gm_data = gm_image.get_data()
+        gm_data = gm_image.get_fdata()
 
         # fit dti model
         import dipy.reconst.dti as dti
