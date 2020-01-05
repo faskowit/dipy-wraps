@@ -45,7 +45,7 @@ def main():
                                                 command_line.bvec_)
 
     # get the data from all the images yo
-    dwi_data = ''
+    dwi_data = None
     if dwi_img:
         dwi_data = dwi_img.get_data()
     mask_data = mask_img.get_data()
@@ -53,7 +53,6 @@ def main():
     if dwi_img:
         dwi_data = applymask(dwi_data, mask_data)
     wm_mask_data = None
-
     if command_line.wmMask_:
         flprint("using wm mask provided")
         wm_mask_img = nib.load(command_line.wmMask_)
@@ -150,11 +149,14 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
     classifier = None
-
     if command_line.actClasses_:
         classifier = act_classifier(command_line)
     else:
-        fa_data, _ = make_fa_map(dwi_data, mask_data, grad_tab)
+        if dwi_data is not None:
+            fa_data, _ = make_fa_map(dwi_data, mask_data, grad_tab)
+        else:
+            flprint('need to provide dwi data if no tissues for classification')
+            exit(1)
 
         from dipy.tracking.stopping_criterion import ThresholdStoppingCriterion
         classifier = ThresholdStoppingCriterion(fa_data, float(command_line.faThr_))
@@ -429,7 +431,7 @@ def main():
 
     if command_line.parcImgs_:
 
-        if dwi_data:
+        if dwi_data is not None:
             flprint("fitting the fa map for conn mat cal")
             _, tensor_fit = make_fa_map(dwi_data, mask_data, grad_tab)
 
@@ -463,7 +465,7 @@ def main():
             # use the default np.eye affine here... to not apply affine twice
             fib_lengths = mat_stream_lengths(m, grouping)
 
-            if dwi_data:
+            if dwi_data is not None:
                 mean_fa, _ = mat_ind_along_streams(m, grouping, tensor_fit.fa,
                                                    aff=mask_img.affine, stdstreamlen=20)
                 mean_md, _ = mat_ind_along_streams(m, grouping, tensor_fit.md,
@@ -472,7 +474,7 @@ def main():
             # save the files
             ex_csv(''.join([conmat_basename, 'slcounts.csv']), m)
             ex_csv(''.join([conmat_basename, 'lengths.csv']), fib_lengths)
-            if dwi_data:
+            if dwi_data is not None:
                 ex_csv(''.join([conmat_basename, 'meanfa.csv']), mean_fa)
                 ex_csv(''.join([conmat_basename, 'meanmd.csv']), mean_md)
 
