@@ -112,3 +112,20 @@ def write_pam_h5py(peaks, out_base, sh_ord):
         group1.create_dataset('peak_dir', data=fod_peak_dir, compression="gzip")
         group1.create_dataset('peak_val', data=fod_peak_val, compression="gzip")
         group1.create_dataset('peak_ind', data=fod_peak_ind, compression="gzip")
+
+
+def load_streamlines_from_file(trk_path, ref_img):
+
+    from dipy.io.streamline import load_tractogram
+    loaded_trk = load_tractogram(trk_path, ref_img)
+
+    return loaded_trk.streamlines
+
+
+def save_trk_to_file(streamlines, ref_img, output_name):
+
+    from dipy.io.stateful_tractogram import Space, StatefulTractogram
+    from dipy.io.streamline import save_trk
+
+    sft = StatefulTractogram(streamlines, ref_img, Space.RASMM)
+    save_trk(sft, output_name)

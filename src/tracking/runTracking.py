@@ -340,36 +340,6 @@ def main():
         cci_streamlines, cci_iter_results, num_removed = \
             cluster_confidence_filter(streamlines, command_line.runCCI_, 50, 1000)
 
-        # num_cci_repetitions = 3
-        # cci_iter_results = np.zeros([len(streamlines), num_cci_repetitions])
-        #
-        # for i in range(num_cci_repetitions):
-        #     cci_iter_results[:, i] = cluster_conf_endp(streamlines, kregions=50, chunksize=1000)
-        #
-        # # mean because we using the clustering on endpoints
-        # cci = np.nanmean(cci_iter_results, axis=1)
-        #
-        # cci_streamlines = Streamlines()
-        # num_removed = 0
-        #
-        # start_time = time.time()
-        #
-        # for i, sl in enumerate(streamlines):
-        #     if cci[i] >= np.float(command_line.runCCI_):
-        #         cci_streamlines.append(sl, cache_build=True)
-        #     else:
-        #         num_removed += 1
-        #
-        # # finalize the append
-        # cci_streamlines.finalize_append()
-        #
-        # flprint("number of streamlines removed with cci: {}".format(str(num_removed)))
-        #
-        # end_time = time.time()
-        #
-        # flprint("time to create new streams: {}".format(str(timedelta(seconds=end_time - start_time))))
-        #
-
         streamlines = cci_streamlines
         cci_results_name = ''.join([command_line.output_, 'cciresults.npz'])
         np.savez_compressed(cci_results_name, cci_iter_results)
@@ -395,31 +365,12 @@ def main():
                                      command_line.tractModel_,
                                      '.trk'])
 
-    flprint("reducing the streamline size")
-    start_time = time.time()
-
+    # downsampling to save disk space
     output_streamlines = Streamlines([approx_polygon_track(s, 0.2) for s in streamlines])
 
-    end_time = time.time()
-    flprint("time to downsample streams: {}".format(str(timedelta(seconds=end_time - start_time))))
-
-    # old usage
-    # from dipy.io.trackvis import save_trk
-    # save_trk(tracks_outputname, output_streamlines, mask_img.affine, mask_data.shape)
-
-    from dipy.io.stateful_tractogram import Space, StatefulTractogram
-    from dipy.io.streamline import save_trk
-
-    sft = StatefulTractogram(streamlines, mask_img, Space.RASMM)
-    save_trk(sft, tracks_outputname, output_streamlines)
-
+    from src.dw_utils.basics import save_trk_to_file
+    save_trk_to_file(output_streamlines, mask_img, tracks_outputname)
     flprint('The output tracks name is: {}'.format(tracks_outputname))
-
-    # from dipy.io.streamline import save_trk
-    # save_trk(tracks_outputname, streamlines, mask_img.affine,
-    #         header=mask_img.header,
-    #         vox_size=mask_img.header.get_zooms(),
-    #         shape=mask_img.shape)
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ CONNECTIVITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
