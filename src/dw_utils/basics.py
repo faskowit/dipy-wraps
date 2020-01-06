@@ -7,6 +7,7 @@ import numpy as np
 import h5py
 from dipy.io import read_bvals_bvecs
 from dipy.core.gradients import gradient_table
+from dipy.reconst.dti import fractional_anisotropy, TensorModel
 
 
 def flprint(instr):
@@ -112,6 +113,19 @@ def write_pam_h5py(peaks, out_base, sh_ord):
         group1.create_dataset('peak_dir', data=fod_peak_dir, compression="gzip")
         group1.create_dataset('peak_val', data=fod_peak_val, compression="gzip")
         group1.create_dataset('peak_ind', data=fod_peak_ind, compression="gzip")
+
+
+def make_fa_map(dwi_data, mask_data, gtab_data):
+
+    tensor_model = TensorModel(gtab_data)
+    tensor_fit = tensor_model.fit(dwi_data, mask=mask_data)
+    fa_data = fractional_anisotropy(tensor_fit.evals)
+    # just saving the FA image yo
+    fa_data[np.isnan(fa_data)] = 0
+    # also we can clip values outside of 0 and 1
+    fa_data = np.clip(fa_data, 0, 1)
+
+    return fa_data, tensor_fit
 
 
 def load_streamlines_from_file(trk_path, ref_img):

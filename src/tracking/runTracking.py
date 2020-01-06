@@ -19,11 +19,10 @@ import time
 from datetime import timedelta
 # dipy wraps imports
 from src.tracking.args_runTracking import CmdLineRunTracking
-from src.dw_utils.basics import flprint, loaddwibasics, chunker
+from src.dw_utils.basics import flprint, loaddwibasics, chunker, make_fa_map
 # dipy imports
 from dipy.segment.mask import applymask
 from dipy.data import get_sphere
-from dipy.reconst.dti import fractional_anisotropy, TensorModel
 from dipy.tracking.utils import random_seeds_from_mask, seeds_from_mask
 from dipy.tracking.streamline import Streamlines
 from dipy.tracking.distances import approx_polygon_track
@@ -381,56 +380,37 @@ def main():
     flprint('THE NUMBER OF STREAMS IS {0}'.format(num_streams))
 
     if command_line.parcImgs_:
-
+        
+        tensor_fit = ''
         if dwi_data is not None:
-            flprint("fitting the fa map for conn mat cal")
+            # fit it here, so we only have to fit once
+            flprint("fitting the fa map for along-edge fa matrices")
             _, tensor_fit = make_fa_map(dwi_data, mask_data, grad_tab)
-
+        
+        from src.tracking.connMatrix import streams_to_matrix
         for i in range(len(command_line.parcImgs_)):
 
             start_time = time.time()
 
-            flprint('\n\nnow making the connectivity matrices for: {}'.format(str(command_line.parcImgs_[i])))
-
-            parcellation_img = nib.load(command_line.parcImgs_[i])
-            parcellation_data = parcellation_img.get_fdata().astype(np.int16)
-
-            # lets get the name of the seg to use
-            # in the output writing
             seg_base_name = ntpath.basename(
               ntpath.splitext(ntpath.splitext(command_line.parcImgs_[i])[0])[0])
             # basename of all the outputs
             conmat_basename = ''.join([command_line.output_, seg_base_name, '_'])
 
-            from dipy.tracking.utils import connectivity_matrix
-            m, grouping = connectivity_matrix(streamlines, mask_img.affine,
-                                              parcellation_data,
-                                              symmetric=True,
-                                              return_mapping=True,
-                                              mapping_as_streamlines=True)
+            # load the parcellation
+            parc_img = nib.load(command_line.parcImgs_[i])
+            parc_data = parc_img.get_fdata().astype(np.int16)
 
-            # get rid of the first row because these are connections to '0'
-            m[:1, :] = 0
-            m[:, :1] = 0
+            count_matrix, stream_grouping = streams_to_matrix(streamlines, parc_data,
+                                                              mask_img, conmat_basename)
 
-            # use the default np.eye affine here... to not apply affine twice
-            fib_lengths = mat_stream_lengths(m, grouping)
-
+            # if dwi data present, also get fa along streams
             if dwi_data is not None:
-                mean_fa, _ = mat_ind_along_streams(m, grouping, tensor_fit.fa,
-                                                   aff=mask_img.affine, stdstreamlen=20)
-                mean_md, _ = mat_ind_along_streams(m, grouping, tensor_fit.md,
-                                                   aff=mask_img.affine, stdstreamlen=20)
-
-            # save the files
-            ex_csv(''.join([conmat_basename, 'slcounts.csv']), m)
-            ex_csv(''.join([conmat_basename, 'lengths.csv']), fib_lengths)
-            if dwi_data is not None:
-                ex_csv(''.join([conmat_basename, 'meanfa.csv']), mean_fa)
-                ex_csv(''.join([conmat_basename, 'meanmd.csv']), mean_md)
+                from src.tracking.connMatrix import info_to_matrix
+                info_to_matrix(count_matrix, stream_grouping, mask_img.affine, tensor_fit.fa,
+                               ''.join([conmat_basename, 'fa']))
 
             end_time = time.time()
-
             flprint("time to make mats: {}".format(str(timedelta(seconds=end_time - start_time))))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -445,65 +425,12 @@ def main():
     nib.save(density_img, density_output_name)
 
 
-def mat_stream_lengths(mat, group, aff=np.eye(4)):
-
-    length_mat = np.zeros(mat.shape, dtype=np.float)
-
-    # by row
-    for x in range(mat.shape[0]):
-        # by column
-        for y in range(mat.shape[1]):
-
-            # check if entry in dict, if so, do more stuff
-            if (x, y) in group:
-                from dipy.tracking.utils import length
-
-                # now we record these values
-                stream_group_len = length(group[x, y])
-                length_mat[x, y] = np.around(np.nanmean(list(stream_group_len)), 2)
-
-    return length_mat
-
-
-def mat_ind_along_streams(mat, group, infovol, aff=np.eye(4), stdstreamlen=50):
-
-    mean_retmat = np.zeros(mat.shape, dtype=np.float)
-    median_retmat = np.zeros(mat.shape, dtype=np.float)
-
-    # will trim the lower %5 and top %5 of streamline
-    trim_length = np.int(np.floor(stdstreamlen / 20))
-
-    # by row
-    for x in range(mat.shape[0]):
-        # by column
-        for y in range(mat.shape[1]):
-
-            # check if entry in dict, if so, do more stuff
-            if (x, y) in group:
-
-                # first lets re-sample all streamlines to const length
-                from dipy.tracking.streamlinespeed import set_number_of_points
-                stand_stream_group = set_number_of_points(group[x, y], stdstreamlen)
-
-                from dipy.tracking.streamline import values_from_volume
-                stream_vals = values_from_volume(infovol, stand_stream_group, aff)
-
-                vals = np.zeros(len(stream_vals))
-                for ind, sv in enumerate(stream_vals):
-                    vals[ind] = np.mean(sv[trim_length:-trim_length])
-
-                mean_retmat[x, y] = np.around(np.mean(vals), 6)
-                median_retmat[x, y] = np.around(np.median(vals), 6)
-
-    return mean_retmat, median_retmat
-
-
-def make_density_img(streams, maskimg, resmultiply):
+def make_density_img(streams, mask_img, resmultiply):
 
     from dipy.tracking.utils import density_map
 
     # initialize a new affine
-    new_affine = maskimg.affine
+    new_affine = mask_img.affine
 
     # divide by the res multiplier
     new_affine[0, 0] = new_affine[0, 0] * 1/resmultiply
@@ -511,42 +438,29 @@ def make_density_img(streams, maskimg, resmultiply):
     new_affine[2, 2] = new_affine[2, 2] * 1/resmultiply
 
     density_data = density_map(streams,
-                               vol_dims=(np.multiply(maskimg.shape, resmultiply)),
+                               vol_dims=(np.multiply(mask_img.shape, resmultiply)),
                                affine=new_affine)
 
     return nib.Nifti1Image(density_data, new_affine)
 
 
-def make_fa_map(dwidata, maskdata, gtabdata):
-
-    tensor_model = TensorModel(gtabdata)
-    tensort_fit = tensor_model.fit(dwidata, mask=maskdata)
-    fa_data = fractional_anisotropy(tensort_fit.evals)
-    # just saving the FA image yo
-    fa_data[np.isnan(fa_data)] = 0
-    # also we can clip values outside of 0 and 1
-    fa_data = np.clip(fa_data, 0, 1)
-
-    return fa_data, tensort_fit
-
-
 def act_classifier(cmdlineobj):
 
     from dipy.tracking.stopping_criterion import ActStoppingCriterion
-    flprint("making the classifier from your segs yo\n")
+    flprint("making the classifier from your segmentation yo\n")
     # csf, gm, wm
-    csfImage = nib.load(cmdlineobj.actClasses_[0])
-    csfData = csfImage.get_fdata()
-    gmImage = nib.load(cmdlineobj.actClasses_[1])
-    gmData = gmImage.get_fdata()
-    wmImage = nib.load(cmdlineobj.actClasses_[2])
-    wmData = wmImage.get_fdata()
+    csf_img = nib.load(cmdlineobj.actClasses_[0])
+    csf_data = csf_img.get_fdata()
+    gm_img = nib.load(cmdlineobj.actClasses_[1])
+    gm_data = gm_img.get_fdata()
+    wm_img = nib.load(cmdlineobj.actClasses_[2])
+    wm_data = wm_img.get_fdata()
     # make a background
-    background = np.ones(csfImage.shape)
-    background[(gmData + wmData + csfData) > 0] = 0
-    include_map = gmData
+    background = np.ones(csf_img.shape)
+    background[(gm_data + wm_data + csf_data) > 0] = 0
+    include_map = gm_data
     include_map[background > 0] = 1
-    exclude_map = csfData
+    exclude_map = csf_data
 
     return ActStoppingCriterion(include_map, exclude_map)
 

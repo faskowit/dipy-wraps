@@ -6,7 +6,8 @@ import nibabel as nib
 import h5py
 from src.dw_utils.basics import flprint
 
-def savePAM(map_peaks,imgAffine,outNameStr,orderStr):
+
+def savePAM(map_peaks, imgAffine, outNameStr, orderStr):
 
     # name
     outNameBase = ''.join([outNameStr, '_order', str(orderStr)])
@@ -45,6 +46,3 @@ def savePAM(map_peaks,imgAffine,outNameStr,orderStr):
 
     # same this FA
     nib.save(gfaImg, gfaOutputName)
-
-if __name__ == '__main__':
-    main()
