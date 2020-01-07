@@ -26,6 +26,7 @@ from dipy.data import get_sphere
 from dipy.tracking.utils import random_seeds_from_mask, seeds_from_mask
 from dipy.tracking.streamline import Streamlines
 from dipy.tracking.distances import approx_polygon_track
+from dipy.reconst.dti import TensorModel
 
 
 def main():
@@ -347,29 +348,27 @@ def main():
     # ~~~~~~~~~~~~~~~~~~~~ TRK IO.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    tracks_outputname = None
-
     if (command_line.tractModel_ == 'csa') or (command_line.tractModel_ == 'csd'):
-        tracks_outputname = ''.join([command_line.output_,
-                                     command_line.dirGttr_,
-                                     '_',
-                                     command_line.tractModel_,
-                                     '_sh',
-                                     str(command_line.shOrder_),
-                                     '.trk'])
+        tracks_output_name = ''.join([command_line.output_,
+                                      command_line.dirGttr_,
+                                      '_',
+                                      command_line.tractModel_,
+                                      '_sh',
+                                      str(command_line.shOrder_),
+                                      '.trk'])
     else:
-        tracks_outputname = ''.join([command_line.output_,
-                                     command_line.dirGttr_,
-                                     '_',
-                                     command_line.tractModel_,
-                                     '.trk'])
+        tracks_output_name = ''.join([command_line.output_,
+                                      command_line.dirGttr_,
+                                      '_',
+                                      command_line.tractModel_,
+                                      '.trk'])
 
     # downsampling to save disk space
     output_streamlines = Streamlines([approx_polygon_track(s, 0.2) for s in streamlines])
 
     from src.dw_utils.basics import save_trk_to_file
-    save_trk_to_file(output_streamlines, mask_img, tracks_outputname)
-    flprint('The output tracks name is: {}'.format(tracks_outputname))
+    save_trk_to_file(output_streamlines, mask_img, tracks_output_name)
+    flprint('The output tracks name is: {}'.format(tracks_output_name))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ CONNECTIVITY ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -399,9 +398,7 @@ def main():
 
             # load the parcellation
             parc_img = nib.load(command_line.parcImgs_[i])
-            parc_data = parc_img.get_fdata().astype(np.int16)
-
-            count_matrix, stream_grouping = streams_to_matrix(streamlines, parc_data,
+            count_matrix, stream_grouping = streams_to_matrix(streamlines, parc_img,
                                                               mask_img, conmat_basename)
 
             # if dwi data present, also get fa along streams

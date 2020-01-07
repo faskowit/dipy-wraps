@@ -1,4 +1,15 @@
+__author__ = 'jfaskowitz'
 
+"""
+
+josh faskowitz
+Indiana University
+
+inspiration taken from the dipy website
+
+"""
+
+import sys
 import nibabel as nib
 import numpy as np
 import ntpath
@@ -7,15 +18,57 @@ import csv
 from dipy.tracking.utils import connectivity_matrix
 # local
 from src.dw_utils.basics import flprint
+from src.dw_utils.basics import load_streamlines_from_file
 
 
 def main():
-    # expose making structural connectivity matrix
-    flprint("todo")
+    # expose structural conn matrix tools to command line
+    from dipy.io import read_bvals_bvecs
+    from dipy.core.gradients import gradient_table
+
+    arguments = len(sys.argv) - 1
+    flprint("the script is called with %i arguments" % arguments)
+    if len(sys.argv) < 5:
+        flprint("usage: {} trk_file  mask_img  parc_img  base_name [ dwi_img  bvec  bval ]".format(sys.argv[0]))
+        exit(0)
+    trk_path = sys.argv[1]
+    ref_path = sys.argv[2]
+    mask_img = nib.load(ref_path)
+    parc_path = sys.argv[3]
+    parc_img = nib.load(parc_path)
+    base_name = sys.argv[4]
+    dwi_img = None
+    gtab = None
+    if (len(sys.argv) > 5) and (len(sys.argv) == 8):
+        # then we getting dwi and gradient table too
+        dwi_path = sys.argv[5]
+        bvecs_path = sys.argv[6]
+        bvals_path = sys.argv[7]
+        bval, bvec = read_bvals_bvecs(bvals_path, bvecs_path)
+        gtab = gradient_table(bval, bvec, b0_threshold=50)
+        dwi_img = nib.load(dwi_path)
+    elif len(sys.argv) > 5:
+        flprint("if requesting tensor fit, need dwi, bvecs, bvals paths")
+        exit(1)
+
+    streamlines = load_streamlines_from_file(trk_path, mask_img)
+    flprint("making streamline matrix")
+    struct_mat, struct_groups = \
+        streams_to_matrix(streamlines, parc_img, mask_img, base_name)
+
+    if dwi_img is not None:
+        # first fit the tensor
+        from src.dw_utils.basics import make_fa_map
+        flprint("fitting tensor")
+        fa_data, _ = make_fa_map(dwi_img.get_fdata(), mask_img.get_fdata(), gtab)
+        flprint("measruing fa along tracts")
+        info_base_name = ''.join([base_name, '_fa'])
+        info_to_matrix(struct_mat, struct_groups, mask_img.affine, fa_data, info_base_name)
 
 
-def streams_to_matrix(streamlines, parc_data, mask_img, out_base_name):
-
+def streams_to_matrix(streamlines, parc_img, mask_img, out_base_name):
+    # first recast the parc_img data to make sure it is int
+    parc_data = parc_img.get_fdata().astype(np.int16)
     stream_counts, stream_grouping = connectivity_matrix(streamlines, mask_img.affine,
                                                          parc_data,
                                                          symmetric=True,
@@ -27,10 +80,14 @@ def streams_to_matrix(streamlines, parc_data, mask_img, out_base_name):
 
     # use the default np.eye affine here... to not apply affine twice
     stream_lengths = sl_len_matrix(stream_counts, stream_grouping)
+    vol_norm = get_parc_volume(parc_img, True)
+    vol_norm_counts = np.divide(stream_counts, vol_norm,
+                                out=np.zeros_like(vol_norm), where=vol_norm != 0)
 
     # save the files
     ex_csv(''.join([out_base_name, 'slcounts.csv']), stream_counts)
     ex_csv(''.join([out_base_name, 'sllens.csv']), stream_lengths)
+    ex_csv(''.join([out_base_name, 'slnormcounts.csv']), vol_norm_counts)
 
     return stream_counts, stream_grouping
 
@@ -83,7 +140,28 @@ def sl_len_matrix(mat, group, aff=np.eye(4)):
                 # now we record these values
                 stream_group_len = length(group[x, y])
                 length_mat[x, y] = np.around(np.nanmean(list(stream_group_len)), 2)
+    # get rid of the connections to 0
+    length_mat[:1, :] = 0
+    length_mat[:, :1] = 0
     return length_mat
+
+
+def get_parc_volume(parc_img, geonorm_matrix=False):
+    # get multiplier, assuming isotropic voxel here
+    vox_2_mm = np.prod(parc_img.header.get_zooms())
+    # get num vox
+    vox_counts = np.bincount(parc_img.get_fdata().astype(np.int16).flatten())
+    mm_vec = np.multiply(vox_counts, vox_2_mm)
+    if not geonorm_matrix:
+        return mm_vec
+    else:
+        geonorm_mat = np.zeros((len(mm_vec), len(mm_vec)))
+        for idx in range(len(mm_vec)):
+            for jdx in range(len(mm_vec)):
+                if idx <= jdx:
+                    continue
+                geonorm_mat[idx, jdx] = np.sqrt(mm_vec[idx] * mm_vec[jdx])
+        return geonorm_mat + geonorm_mat.T
 
 
 def ex_csv(filename, data):
