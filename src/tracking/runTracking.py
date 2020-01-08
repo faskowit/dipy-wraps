@@ -338,7 +338,7 @@ def main():
 
         from src.tracking.clustConfidence import cluster_confidence_filter
         cci_streamlines, cci_iter_results, num_removed = \
-            cluster_confidence_filter(streamlines, command_line.runCCI_, 50, 1000)
+            cluster_confidence_filter(streamlines, command_line.runCCI_, kregions=50, chunksize=1000)
 
         streamlines = cci_streamlines
         cci_results_name = ''.join([command_line.output_, 'cciresults.npz'])
