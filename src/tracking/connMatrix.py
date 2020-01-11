@@ -29,8 +29,8 @@ def main():
     arguments = len(sys.argv) - 1
     flprint("the script is called with %i arguments" % arguments)
     if len(sys.argv) < 5:
-        flprint("usage: {} trk_file  mask_img  parc_img  base_name [ dwi_img  bvec  bval ] "
-                "or [ info_img ]".format(sys.argv[0]))
+        flprint("usage: {} trk_file  mask_img  (parc_img or .txt of parc paths) "
+                " base_name [ dwi_img  bvec  bval ] or [ info_img ]".format(sys.argv[0]))
         exit(0)
     trk_path = sys.argv[1]
     ref_path = sys.argv[2]
@@ -72,7 +72,7 @@ def main():
         flprint("found multiple parcs in txt file")
         parc_list_read = open(parc_path, "r")
         for line in parc_list_read:
-            parc_img.append(nib.load(line))
+            parc_img.append(nib.load(line.split()[0])) # to avoid new line char in text file
             parc_name_mod.append(ntpath.basename(ntpath.splitext(ntpath.splitext(line)[0])[0]))
     else:
         flprint("cannot determine if parc input is valid. exiting")
