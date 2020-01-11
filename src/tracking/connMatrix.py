@@ -10,9 +10,9 @@ inspiration taken from the dipy website
 """
 
 import sys
+import ntpath
 import nibabel as nib
 import numpy as np
-import ntpath
 import csv
 # dipy
 from dipy.tracking.utils import connectivity_matrix
@@ -29,16 +29,19 @@ def main():
     arguments = len(sys.argv) - 1
     flprint("the script is called with %i arguments" % arguments)
     if len(sys.argv) < 5:
-        flprint("usage: {} trk_file  mask_img  parc_img  base_name [ dwi_img  bvec  bval ]".format(sys.argv[0]))
+        flprint("usage: {} trk_file  mask_img  parc_img  base_name [ dwi_img  bvec  bval ] "
+                "or [ info_img ]".format(sys.argv[0]))
         exit(0)
     trk_path = sys.argv[1]
     ref_path = sys.argv[2]
     mask_img = nib.load(ref_path)
     parc_path = sys.argv[3]
-    parc_img = nib.load(parc_path)
+    # parc_img = nib.load(parc_path)
     base_name = sys.argv[4]
     dwi_img = None
+    info_img = None
     gtab = None
+    info_path = ''
     if (len(sys.argv) > 5) and (len(sys.argv) == 8):
         # then we getting dwi and gradient table too
         dwi_path = sys.argv[5]
@@ -47,23 +50,54 @@ def main():
         bval, bvec = read_bvals_bvecs(bvals_path, bvecs_path)
         gtab = gradient_table(bval, bvec, b0_threshold=50)
         dwi_img = nib.load(dwi_path)
+    if (len(sys.argv) > 5) and (len(sys.argv) == 6):
+        info_path = sys.argv[5]
+        info_img = nib.load(info_path)
     elif len(sys.argv) > 5:
         flprint("if requesting tensor fit, need dwi, bvecs, bvals paths")
         exit(1)
 
     streamlines = load_streamlines_from_file(trk_path, mask_img)
     flprint("making streamline matrix")
-    struct_mat, struct_groups = \
-        streams_to_matrix(streamlines, parc_img, mask_img, base_name)
 
-    if dwi_img is not None:
-        # first fit the tensor
-        from src.dw_utils.basics import make_fa_map
-        flprint("fitting tensor")
-        fa_data, _ = make_fa_map(dwi_img.get_fdata(), mask_img.get_fdata(), gtab)
-        flprint("measruing fa along tracts")
-        info_base_name = ''.join([base_name, '_fa'])
-        info_to_matrix(struct_mat, struct_groups, mask_img.affine, fa_data, info_base_name)
+    parc_img = []
+    parc_name_mod = []
+    # check if provided parc is list of files, or just one nifti, via file ending
+    parc_split = parc_path.split(".")
+    if ''.join(parc_split[-2:]) == "niigz":
+        flprint("found parc image")
+        parc_img.append(nib.load(parc_path))
+        parc_name_mod.append('')
+    elif parc_split[-1] == "txt":
+        flprint("found multiple parcs in txt file")
+        parc_list_read = open(parc_path, "r")
+        for line in parc_list_read:
+            parc_img.append(nib.load(line))
+            parc_name_mod.append(ntpath.basename(ntpath.splitext(ntpath.splitext(line)[0])[0]))
+    else:
+        flprint("cannot determine if parc input is valid. exiting")
+        exit(1)
+
+    # now iterate over parc_img
+    for parc, parc_n in zip(parc_img, parc_name_mod):
+        parc_base_name = ''.join([base_name, '_', parc_n])
+        struct_mat, struct_groups = \
+            streams_to_matrix(streamlines, parc, mask_img, parc_base_name)
+
+        if (dwi_img is not None) or (info_img is not None):
+            if dwi_img is not None:
+                # first fit the tensor
+                from src.dw_utils.basics import make_fa_map
+                flprint("fitting tensor")
+                along_tract_data, _ = make_fa_map(dwi_img.get_fdata(), mask_img.get_fdata(), gtab)
+                flprint("measuring fa along tracts")
+                name_mod = 'fa'
+            else:
+                name_mod = 'info'
+                along_tract_data = info_img.get_fdata()
+                flprint("measuring provided image ({}) map along tracts".format(info_path))
+            info_base_name = ''.join([parc_base_name, name_mod])
+            info_to_matrix(struct_mat, struct_groups, mask_img.affine, along_tract_data, info_base_name)
 
 
 def streams_to_matrix(streamlines, parc_img, mask_img, out_base_name):
