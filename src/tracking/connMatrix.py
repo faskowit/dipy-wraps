@@ -16,6 +16,7 @@ import numpy as np
 import csv
 # dipy
 from dipy.tracking.utils import connectivity_matrix
+from dipy.segment.mask import applymask
 # local
 from src.dw_utils.basics import flprint
 from src.dw_utils.basics import load_streamlines_from_file
@@ -80,7 +81,8 @@ def main():
                 info_to_matrix(struct_mat, struct_groups, mask_img.affine, along_tract_data, info_base_name)
             else:
                 for info, info_n in zip(info_img, info_name_mod):
-                    along_tract_data = info.get_fdata()
+                    # along_tract_data = info.get_fdata()
+                    along_tract_data = applymask(info.get_fdata(), mask_img.get_fdata())
                     flprint("measuring provided image ({}) map along tracts".format(info_n))
                     info_base_name = ''.join([parc_base_name, info_n, 'info'])
                     info_to_matrix(struct_mat, struct_groups, mask_img.affine, along_tract_data, info_base_name)
