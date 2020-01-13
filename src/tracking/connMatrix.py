@@ -52,7 +52,7 @@ def main():
         dwi_img = nib.load(dwi_path)
     if (len(sys.argv) > 5) and (len(sys.argv) == 6):
         info_path = sys.argv[5]
-        info_img = nib.load(info_path)
+        # info_img = nib.load(info_path)
     elif len(sys.argv) > 5:
         flprint("if requesting tensor fit, need dwi, bvecs, bvals paths")
         exit(1)
@@ -60,23 +60,8 @@ def main():
     streamlines = load_streamlines_from_file(trk_path, mask_img)
     flprint("making streamline matrix")
 
-    parc_img = []
-    parc_name_mod = []
-    # check if provided parc is list of files, or just one nifti, via file ending
-    parc_split = parc_path.split(".")
-    if ''.join(parc_split[-2:]) == "niigz":
-        flprint("found parc image")
-        parc_img.append(nib.load(parc_path))
-        parc_name_mod.append('')
-    elif parc_split[-1] == "txt":
-        flprint("found multiple parcs in txt file")
-        parc_list_read = open(parc_path, "r")
-        for line in parc_list_read:
-            parc_img.append(nib.load(line.split()[0])) # to avoid new line char in text file
-            parc_name_mod.append(ntpath.basename(ntpath.splitext(ntpath.splitext(line)[0])[0]))
-    else:
-        flprint("cannot determine if parc input is valid. exiting")
-        exit(1)
+    parc_img, parc_name_mod = read_niigz_or_txt(parc_path)
+    info_img, info_name_mod = read_niigz_or_txt(info_path)
 
     # now iterate over parc_img
     for parc, parc_n in zip(parc_img, parc_name_mod):
@@ -91,13 +76,14 @@ def main():
                 flprint("fitting tensor")
                 along_tract_data, _ = make_fa_map(dwi_img.get_fdata(), mask_img.get_fdata(), gtab)
                 flprint("measuring fa along tracts")
-                name_mod = 'fa'
+                info_base_name = ''.join([parc_base_name, 'fa'])
+                info_to_matrix(struct_mat, struct_groups, mask_img.affine, along_tract_data, info_base_name)
             else:
-                name_mod = 'info'
-                along_tract_data = info_img.get_fdata()
-                flprint("measuring provided image ({}) map along tracts".format(info_path))
-            info_base_name = ''.join([parc_base_name, name_mod])
-            info_to_matrix(struct_mat, struct_groups, mask_img.affine, along_tract_data, info_base_name)
+                for info, info_n in zip(info_img, info_name_mod):
+                    along_tract_data = info.get_fdata()
+                    flprint("measuring provided image ({}) map along tracts".format(info_n))
+                    info_base_name = ''.join([parc_base_name, info_n, 'info'])
+                    info_to_matrix(struct_mat, struct_groups, mask_img.affine, along_tract_data, info_base_name)
 
 
 def streams_to_matrix(streamlines, parc_img, mask_img, out_base_name):
@@ -202,6 +188,31 @@ def ex_csv(filename, data):
     with open(filename, "w") as f:
         writer = csv.writer(f)
         writer.writerows(data)
+
+
+def read_niigz_or_txt(input_path):
+    # lil func to read in path to txt of images, or just a single path to image
+
+    img_list = []
+    name_mod = []
+    # check if provided parc is list of files, or just one nifti, via file ending
+    path_split = input_path.split(".")
+    if ''.join(path_split[-2:]) == "niigz":
+        flprint("found one image: {}".format(str(input_path)))
+        img_list.append(nib.load(input_path))
+        name_mod.append('')
+    elif path_split[-1] == "txt":
+        flprint("found multiple images in txt file: ")
+        img_list_read = open(input_path, "r")
+        for line in img_list_read:
+            flprint(str(line))
+            img_list.append(nib.load(line.split()[0]))  # to avoid new line char in text file
+            name_mod.append(ntpath.basename(ntpath.splitext(ntpath.splitext(line)[0])[0]))
+    else:
+        flprint("cannot determine if path ({}) input is .nii.gz or .txt".format(str(input_path)))
+        exit(1)
+    # return list of Nifti objects and list of name mod (even if list is len 1)
+    return img_list, name_mod
 
 
 if __name__ == "__main__":
