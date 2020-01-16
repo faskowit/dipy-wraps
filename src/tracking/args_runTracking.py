@@ -30,6 +30,7 @@ class CmdLineRunTracking(CmdLineHandler):
         # related to tracking opts
         self.tractModel_ = ''
         self.dirGttr_ = 'deterministic'
+        self.trkEngine_ = 'local'
 
         # streamline opts
         self.stepSize_ = 0.5
@@ -73,6 +74,8 @@ class CmdLineRunTracking(CmdLineHandler):
                                  choices=['csa', 'csd', 'dti'])
         self.parser.add_argument('-dir_gttr', nargs='?', help="direction getter to use when streamline tracking",
                                  choices=['deterministic', 'probabilistic'])
+        self.parser.add_argument('-track_engine', nargs='?', help="method to propogate streamlines",
+                                 choices=['local', 'particle'])
         # streamline stuff
         self.parser.add_argument('-step_size', nargs='?', help="step size to proceed in streamline tracking")
         self.parser.add_argument('-max_cross', nargs='?', help="how many possible directions to start out from seed")
@@ -127,6 +130,8 @@ class CmdLineRunTracking(CmdLineHandler):
             self.tractModel_ = args.tract_model
         if args.dir_gttr:
             self.dirGttr_ = args.dir_gttr
+        if args.track_engine:
+            self.trkEngine_ = args.track_engine
 
         if args.step_size:
             self.stepSize_ = np.float(args.step_size)
@@ -153,7 +158,6 @@ class CmdLineRunTracking(CmdLineHandler):
     def check_args(self):
 
         self.checkdwibasics()
-
         # check all the possible files
         if self.wmMask_:
             checkisfile(self.wmMask_)
@@ -167,19 +171,23 @@ class CmdLineRunTracking(CmdLineHandler):
         if self.parcImgs_:
             for x in range(len(self.parcImgs_)):
                 checkisfile(self.parcImgs_[x])
-
         # if it is set, because it can be 'None' if not set
         if self.maxCross_:
             self.maxCross_ = int(self.maxCross_)
-
         if self.seedDensity_ and not isint(self.seedDensity_) or self.seedDensity_ > 10:
             flprint("seed density looks wrong. exiting")
             exit(1)
-
         if self.limitTotSeeds_ and isint(self.limitTotSeeds_):
             flprint("limit total seeds looks wrong. exiting")
             exit(1)
-
         if not isfloat(self.faThr_) or (self.faThr_ < 0.5 or self.faThr_ > 1.0):
             print("fa threshold wrong. please fix")
             exit(1)
+        if self.trkEngine_ == 'particle':
+            if self.actClasses_ is None:
+                flprint("need act classifiers for particle filtering tractography")
+                exit(1)
+            if self.dirGttr_ == 'deterministic':
+                flprint("particle filtering needs to be probabilistic")
+                exit(1)
+

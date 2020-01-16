@@ -150,7 +150,10 @@ def main():
 
     classifier = None
     if command_line.actClasses_:
-        classifier = act_classifier(command_line)
+        if command_line.trkEngine_ == 'particle':
+            classifier = cmc_classifier(command_line)
+        else:
+            classifier = act_classifier(command_line)
     else:
         if dwi_data is not None:
             fa_data, _ = make_fa_map(dwi_data, mask_data, grad_tab)
@@ -274,11 +277,11 @@ def main():
 
     streamlines = None
     flprint("making streamlines yo\n")
+    start_time = time.time()
 
-    if command_line.dirGttr_ != 'eudx':
-        start_time = time.time()
+    if command_line.trkEngine_ == 'local':
         from dipy.tracking.local_tracking import LocalTracking
-
+        flprint("running local tracking")
         if command_line.chunkTrack_:
             flprint("low mem tracking will track in chunks")
             # chunk the seedpoints
@@ -316,19 +319,37 @@ def main():
                                                  return_all=False)
             # Compute streamlines
             streamlines = list(streamline_generator)
-
             # this is the length function that acts on lists
             from dipy.tracking.metrics import length
             streamlines = [s for s in streamlines if length(s) > np.float(command_line.lenThresh_)]
             # use the Streamlines type now
             streamlines = Streamlines(streamlines)
+    elif command_line.trkEngine_ == 'particle':
+        from dipy.tracking.local_tracking import ParticleFilteringTracking
+        flprint("running particle filtering tracking")
+        streamline_generator = ParticleFilteringTracking(dir_getter,
+                                                         classifier,
+                                                         seed_points,
+                                                         mask_img.affine,
+                                                         step_size=np.float(command_line.stepSize_),
+                                                         maxlen=400,
+                                                         max_cross=command_line.maxCross_,
+                                                         return_all=False)
+        # Compute streamlines
+        streamlines = list(streamline_generator)
 
-        end_time = time.time()
-        flprint("\nfinished generating streams, took {}".format(str(timedelta(seconds=end_time - start_time))))
-        flprint("initially generated {} streamlines".format(str(len(streamlines))))
+        # this is the length function that acts on lists
+        from dipy.tracking.metrics import length
+        streamlines = [s for s in streamlines if length(s) > np.float(command_line.lenThresh_)]
+        # use the Streamlines type now
+        streamlines = Streamlines(streamlines)
     else:
-        flprint("this script no longer supports eudx")
+        flprint("this script needs a tracking engine")
         exit(1)
+
+    end_time = time.time()
+    flprint("\nfinished generating streams, took {}".format(str(timedelta(seconds=end_time - start_time))))
+    flprint("initially generated {} streamlines".format(str(len(streamlines))))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # ~~~~~~~~~~~~~~~~~~~~ cluster con ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -460,6 +481,22 @@ def act_classifier(cmdlineobj):
     exclude_map = csf_data
 
     return ActStoppingCriterion(include_map, exclude_map)
+
+
+def cmc_classifier(cmdlineobj):
+    from dipy.tracking.stopping_criterion import CmcStoppingCriterion
+    flprint("making the cmc classifier from your segmentation yo\n")
+    csf_img = nib.load(cmdlineobj.actClasses_[0])
+    csf_data = csf_img.get_fdata()
+    gm_img = nib.load(cmdlineobj.actClasses_[1])
+    gm_data = gm_img.get_fdata()
+    wm_img = nib.load(cmdlineobj.actClasses_[2])
+    wm_data = wm_img.get_fdata()
+    voxel_size = np.average(wm_img.header['pixdim'][1:4])
+
+    return CmcStoppingCriterion.from_pve(wm_data, gm_data, csf_data,
+                                         step_size=np.float(cmdlineobj.stepSize_),
+                                         average_voxel_size=voxel_size)
 
 
 def ex_csv(filename, data):
