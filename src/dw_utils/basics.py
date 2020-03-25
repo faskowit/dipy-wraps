@@ -74,7 +74,7 @@ def loaddwibasics(dwipath, maskpath, bvalpath, bvecpath):
         exit(1)
 
     # need to create the gradient table yo
-    gtab = gradient_table(bval_data, bvec_data, b0_threshold=25)
+    gtab = gradient_table(bval_data, bvec_data, b0_threshold=66)
 
     # show user
     if dwipath:

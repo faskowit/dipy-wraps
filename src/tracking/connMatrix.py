@@ -116,7 +116,7 @@ def streams_to_matrix(streamlines, parc_img, mask_img, out_base_name):
 
 def info_to_matrix(mat, group, aff, info_data, out_base_name):
 
-    mean_mat, median_mat = info_along_streams(mat, group, info_data, aff)
+    mean_mat, median_mat = info_along_streams(mat, group, info_data, aff, 20)
 
     # write it
     ex_csv(''.join([out_base_name, 'mean.csv']), mean_mat)
